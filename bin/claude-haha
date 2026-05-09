@@ -4,10 +4,29 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+if [[ -n "${BUN_PATH:-}" && -x "${BUN_PATH}" ]]; then
+  BUN_BIN="$BUN_PATH"
+elif [[ -n "${BUN_PATH:-}" ]]; then
+  echo "[WARN] BUN_PATH is set but not executable: ${BUN_PATH}"
+  BUN_BIN="$(command -v bun || true)"
+else
+  BUN_BIN="$(command -v bun || true)"
+fi
+
+if [[ -z "${BUN_BIN}" && -x "$HOME/.bun/bin/bun" ]]; then
+  BUN_BIN="$HOME/.bun/bin/bun"
+fi
+
+if [[ -z "${BUN_BIN}" ]]; then
+  echo "[ERROR] bun not found in PATH."
+  echo "Install bun: https://bun.sh/  (or set BUN_PATH=/path/to/bun)"
+  exit 127
+fi
+
 # Force recovery CLI (simple readline REPL, no Ink TUI)
 if [[ "${CLAUDE_CODE_FORCE_RECOVERY_CLI:-0}" == "1" ]]; then
-  exec bun --env-file=.env ./src/localRecoveryCli.ts "$@"
+  exec "$BUN_BIN" --env-file=.env ./src/localRecoveryCli.ts "$@"
 fi
 
 # Default: full CLI with Ink TUI
-exec bun --env-file=.env ./src/entrypoints/cli.tsx "$@"
+exec "$BUN_BIN" --env-file=.env ./src/entrypoints/cli.tsx "$@"

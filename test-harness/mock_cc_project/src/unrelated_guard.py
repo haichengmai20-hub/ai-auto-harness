@@ -1,0 +1,2 @@
+FLAG = "DO_NOT_EDIT"
+VALUE = 42
