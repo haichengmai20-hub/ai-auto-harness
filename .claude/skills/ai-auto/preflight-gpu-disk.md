@@ -1,0 +1,76 @@
+---
+name: preflight-gpu-disk
+description: GPU / 磁盘 / gated repo / 模型规模 资源 preflight 子能力 — intake / install skill 调
+---
+
+# preflight-gpu-disk
+
+intake / install 阶段调本子能力做资源 preflight。
+
+## GPU preflight
+
+```bash
+nvidia-smi --query-gpu=index,memory.used,memory.free,memory.total --format=csv,noheader,nounits
+```
+
+输出每张卡 `index, used_MiB, free_MiB, total_MiB`(MiB)。
+
+**判定规则**:
+- 单卡 `used ≥ 25000`(MiB,即 ~25GB)→ 该卡**不参与分配**
+- 其余卡按 `free` 降序,取 Top N(N=项目需要的 GPU 数,从 README/config 推断)
+- 选中卡 `free ≥ 项目预估需求(MiB)+ 2048`(2GB safety) → ok
+- 否则 → `blocked.append("gpu_insufficient")`
+
+## 磁盘 preflight
+
+```bash
+df -h /root | awk 'NR==2 {print $4}'  # Avail 字段
+```
+
+把 `<value>G` 转 GB int(去掉 G/M 后缀)。
+
+**判定**:
+- `free_gb ≥ estimated_weight_size_gb + 50` → ok
+- 否则 → `blocked.append("disk_low: free=<X>GB, need=<Y>GB")`
+- 同时提示用户清理 `/root/core.*` 或 `workspace/` 老项目
+
+## Gated Repo preflight
+
+对 `hf_repos[]` 中每个 repo:
+
+```bash
+curl -s "https://huggingface.co/api/models/<org>/<name>" | jq -r '.gated // "false"'
+```
+
+- 输出 `"manual"` 或 `"auto"` → 是 gated
+- 输出 `"false"` / null → 公开
+
+对每个 gated repo,试探下载小文件:
+
+```bash
+HF_HOME="$WORKSPACE/.cache/huggingface" huggingface-cli download <repo> README.md --quiet 2>&1
+```
+
+- 成功 → 已有 token 且权限 OK
+- 失败含 "401" / "Unauthorized" → `blocked.append("gated_no_token: <repo>")`
+
+## 模型规模 preflight
+
+```python
+# 主 agent 传入 estimated_params_b
+if estimated_params_b > 30:
+    blocked.append(f"model_too_large: {estimated_params_b}B > 30B threshold")
+```
+
+主 agent 应该已过滤,这里 double check。
+
+## 返回
+
+```json
+{
+  "gpu_picks": [3, 4],
+  "blocked": [],
+  "free_disk_gb": 580,
+  "gated_check": {"<repo>": "ok|needs_token"}
+}
+```
