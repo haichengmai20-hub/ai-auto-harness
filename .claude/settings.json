@@ -1,0 +1,84 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git clone *)",
+      "Bash(git pull *)",
+      "Bash(git status*)",
+      "Bash(git log *)",
+      "Bash(huggingface-cli *)",
+      "Bash(hf *)",
+      "Bash(pip *)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(nvidia-smi*)",
+      "Bash(df *)",
+      "Bash(du *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(tail *)",
+      "Bash(head *)",
+      "Bash(grep *)",
+      "Bash(find *)",
+      "Bash(jq *)",
+      "Bash(mkdir *)",
+      "Bash(rm -rf workspace/*)",
+      "Bash(rm -rf /tmp/*)",
+      "Bash(curl -s https://huggingface.co/api/*)",
+      "Bash(curl -sI https://huggingface.co/*)",
+      "Bash(nohup *)",
+      "Bash(setsid *)",
+      "Bash(kill *)",
+      "Bash(pgrep *)",
+      "Bash(source *)",
+      "Bash(echo *)",
+      "Bash(test *)",
+      "Bash(true)",
+      "Bash(false)",
+      "Read(*)",
+      "Write(workspace/**)",
+      "Write(runs/**)",
+      "Write(reports/**)",
+      "Write(memory/**)",
+      "Write(pending_human/**)",
+      "Write(state/**)",
+      "Edit(workspace/**)",
+      "Grep(*)",
+      "Task(*)",
+      "BashOutput(*)",
+      "KillBash(*)",
+      "mcp__ai_daily_scan__*"
+    ],
+    "deny": [
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf ~/*)",
+      "Bash(rm -rf /root/*)",
+      "Bash(sudo *)",
+      "Write(/etc/**)",
+      "Write(/root/.ssh/**)",
+      "Write(/root/.claude/**)"
+    ]
+  },
+  "mcpServers": {
+    "ai_daily_scan": {
+      "command": "python",
+      "args": ["/root/ai-daily-scan/mcp_server.py"],
+      "env": {
+        "PYTHONPATH": "/root/ai-daily-scan:/root/ai-daily-scan/src"
+      }
+    }
+  },
+  "hooks": {
+    "SessionStart": [{
+      "matcher": ".*",
+      "hooks": [{"type": "command", "command": "/root/ai-auto-harness/.claude/hooks/session-start.sh"}]
+    }],
+    "PostToolUse": [{
+      "matcher": ".*",
+      "hooks": [{"type": "command", "command": "/root/ai-auto-harness/.claude/hooks/post-tool-use.sh"}]
+    }],
+    "SessionEnd": [{
+      "matcher": ".*",
+      "hooks": [{"type": "command", "command": "/root/ai-auto-harness/.claude/hooks/session-end.sh"}]
+    }]
+  }
+}
