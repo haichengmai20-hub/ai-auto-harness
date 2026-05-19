@@ -1,0 +1,7 @@
+# 把这一行加到 root crontab(执行 `crontab -e`):
+
+30 10 * * * /root/ai-auto-harness/cron/daily.sh
+
+# 验证:
+#   crontab -l | grep ai-auto
+#   tail -f /root/ai-auto-harness/runs/cron-*/cron.out
