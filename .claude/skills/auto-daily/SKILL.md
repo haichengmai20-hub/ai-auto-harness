@@ -1,6 +1,6 @@
 ---
-name: daily-auto
-description: AI Auto Harness 顶层工作流 — 接续 / pick / dispatch 5 阶段 SubAgent / 写报告
+name: auto-daily
+description: AI Auto Harness 顶层工作流 — 接续 / pick / dispatch 5 阶段 SubAgent / 写报告(/auto-daily 触发)
 allowed-tools: [Read, Write, Bash, Task, mcp__ai_daily_scan__*]
 ---
 

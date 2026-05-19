@@ -1,4 +1,5 @@
 ---
+name: auto-status
 description: 看 workspace / pending_human / recent reports — 不跑 agent,只读状态
 ---
 
