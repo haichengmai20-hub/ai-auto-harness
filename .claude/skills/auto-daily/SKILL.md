@@ -8,12 +8,29 @@ allowed-tools: [Read, Write, Bash, Task, mcp__ai_daily_scan__*]
 
 你是 AI Auto Harness 平台的主 agent。每天 10:30 由 cron 启动你(或被 `/auto-daily` 命令触发)。
 
+> **运行模式说明**:cron 用 `--bare` 启动 claude-haha(跳过 hooks/OAuth/keychain 等 Privoxy 不友好的功能),所以 SessionStart/PostToolUse/SessionEnd **hooks 不会触发**。本 skill 需要**自己**生成 run-id、写 transcript、最后 commit 报告.
+
+## 任务 0:初始化(主 agent 启动后第一件事)
+
+```bash
+HARNESS_ROOT="/root/ai-auto-harness"
+cd "$HARNESS_ROOT"
+
+# 生成 run-id 并落盘
+RUN_ID="$(date +%Y-%m-%d-%H%M)-$$"
+mkdir -p "runs/$RUN_ID"
+echo "$RUN_ID" > "runs/.current_run_id"
+echo "{\"started_at\":\"$(date -Iseconds)\",\"run_id\":\"$RUN_ID\"}" > "runs/$RUN_ID/meta.json"
+```
+
+记住 `$RUN_ID`,后续每步都要写到 `runs/$RUN_ID/`(decisions.md、SubAgent return 等)。
+
 ## 工作流(顺序执行)
 
 ### 任务 1:接续与积压检查
 
 ```bash
-find workspace -maxdepth 2 -name state.json -exec jq -c '{slug, phase, phases_done, updated_at}' {} \; 2>/dev/null
+find workspace -maxdepth 2 -name state.json -exec jq -c '{slug, phase, phases_done, updated_at, started_at}' {} \; 2>/dev/null
 ```
 
 筛选 `state.phase ∉ {done, paused_for_human}` 的项目(in_progress)。
@@ -40,19 +57,77 @@ find workspace -maxdepth 2 -name state.json -exec jq -c '{slug, phase, phases_do
 
 **选 1 个**。
 
-### 任务 3:部署流水线
+### 任务 3:部署流水线(具体执行)
 
-读项目 `workspace/<slug>/state.json` 决定从哪个阶段开始:
+读项目 `workspace/<slug>/state.json` 决定从哪个阶段开始(若新项目,state.json 还没建,从 intake 开始):
 
-| state.phase | dispatch SubAgent (用 Task 工具,subagent_type 对应) | 完成后 state.phase ← |
+| state.phase | dispatch SubAgent skill | 完成后 state.phase ← |
 |---|---|---|
-| (新项目,无 state.json) | intake | fetching |
-| fetching | fetch-weights | installing |
-| installing | install-env | running |
-| running | run-and-repair | verifying |
-| verifying | verify | done |
+| `null`(新项目) | `intake` | `fetching` |
+| `fetching` | `fetch-weights` | `installing` |
+| `installing` | `install-env` | `running` |
+| `running` | `run-and-repair` | `verifying` |
+| `verifying` | `verify` | `done` |
 
-任一 SubAgent 返回 `blocked=true` 或 `paused_for_human` → 跳到任务 4 写报告。
+**执行循环**(伪代码,每一步你都用对应的 Task 工具实际跑):
+
+```
+WORKSPACE="workspace/$SLUG"
+while True:
+    if not exists(f"{WORKSPACE}/state.json"):
+        PHASE = "null"  # 新项目
+    else:
+        PHASE = jq -r '.phase' "$WORKSPACE/state.json"
+
+    if PHASE in ["done", "paused_for_human"]:
+        break  # 完成或卡住,进任务 4
+
+    # 选 SubAgent
+    SKILL = {"null": "intake", "fetching": "fetch-weights",
+             "installing": "install-env", "running": "run-and-repair",
+             "verifying": "verify"}[PHASE]
+
+    NEXT_PHASE = {"null": "fetching", "fetching": "installing",
+                  "installing": "running", "running": "verifying",
+                  "verifying": "done"}[PHASE]
+
+    # 用 Task 工具 dispatch SubAgent(传入 slug + 必要上下文)
+    RESULT = Task(subagent_type=SKILL, input={
+        "slug": SLUG,
+        "workspace_path": WORKSPACE,
+        ...其他从 state.intake_result/fetch_result/... 传
+    })
+
+    # 写 SubAgent return 到 runs/$RUN_ID/
+    Write(f"runs/{RUN_ID}/{SKILL}.json", json.dumps(RESULT))
+
+    # 检查阻塞
+    if RESULT.get("blocked") or RESULT.get("paused_for_human"):
+        break  # 进任务 4
+
+    if RESULT.get("paused_in_progress"):
+        # fetch-weights 跨 cron 接续场景 — state.phase 不变,等下次 cron
+        break  # 进任务 4(报告写"in progress")
+
+    # 更新 state.json:phase 切到 NEXT_PHASE,phases_done append
+    jq --arg p "$NEXT_PHASE" --arg s "$SKILL" --arg t "$(date -Iseconds)" \
+       '.phase = $p | .phases_done += [$s] | .updated_at = $t | .{$SKILL}_result = '"$(echo $RESULT)"'' \
+       "$WORKSPACE/state.json" > /tmp/s && mv /tmp/s "$WORKSPACE/state.json"
+
+    # 继续下一轮
+```
+
+任一 SubAgent 返回 `blocked=true`、`paused_for_human` 或 `paused_in_progress` → 跳到任务 4 写报告。
+
+### 任务 3 跨 cron 接续(关键)
+
+- 单次 cron run 只能跑约 30-60 分钟内完成的事(--print 模式不适合超长)
+- 长任务(主要是 fetch-weights 拉几十 GB 权重)可能跨 cron:
+  - SubAgent 2 启动 background bash 拉权重
+  - 写 state.fetch_state.bg_shells(含 PID)
+  - 若快到 cron 结束(50 分钟)还没拉完 → 返回 `paused_in_progress: true`
+  - state.phase 仍是 `fetching`
+  - **下次 cron** 主 agent 任务 1 扫到这个 in_progress → 任务 2 不挑新项目 → 任务 3 重新 dispatch fetch-weights(SubAgent 自己 resume)
 
 ### 特例:模型 > 30B 或不能 self-host
 

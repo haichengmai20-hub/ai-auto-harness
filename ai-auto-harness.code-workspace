@@ -1,0 +1,22 @@
+{
+  "folders": [
+    {
+      "name": "ai-auto-harness",
+      "path": "."
+    }
+  ],
+  "settings": {
+    "claudeCode.preferredLocation": "panel",
+    "claudeCode.disableLoginPrompt": true,
+    "claudeCode.environmentVariables": [
+      {
+        "name": "HTTP_PROXY",
+        "value": "http://172.16.6.179:61080/"
+      },
+      {
+        "name": "HTTPS_PROXY",
+        "value": "http://172.16.6.179:61080/"
+      }
+    ]
+  }
+}
