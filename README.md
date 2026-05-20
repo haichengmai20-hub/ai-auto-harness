@@ -1,243 +1,201 @@
-# Claude Code Haha
+# AI Auto Harness
 
-<p align="right"><strong>中文</strong> | <a href="./README.en.md">English</a></p>
+> **基于 Claude Code 源码的 AI 项目信号发现 → 自动部署 → 自动验证 → 公司视角建议 平台**
 
-基于 Claude Code 泄露源码修复的**本地可运行版本**，支持接入任意 Anthropic 兼容 API（如 MiniMax、OpenRouter 等）。
-
-> 原始泄露源码无法直接运行。本仓库修复了启动链路中的多个阻塞问题，使完整的 Ink TUI 交互界面可以在本地工作。
-
-<p align="center">
-  <img src="docs/00runtime.png" alt="运行截图" width="800">
-</p>
-
-## 功能
-
-- 完整的 Ink TUI 交互界面（与官方 Claude Code 一致）
-- `--print` 无头模式（脚本/CI 场景）
-- 支持 MCP 服务器、插件、Skills
-- 支持自定义 API 端点和模型
-- 降级 Recovery CLI 模式
+每天 10:30 由 cron 触发,自主完成:
+1. 通过 MCP 从 [ai-daily-scan](https://github.com/haichengmai20-hub/ai-daily-scan) 拿当日 AI 项目候选
+2. 按 30B 阈值 / 资源 / blacklist 过滤,挑 1 个最值得部署的
+3. 5 阶段 SubAgent 串行部署:
+   - **intake**:git clone + 读 README + 资源 preflight(GPU/磁盘/gated/参数量)
+   - **fetch-weights**:HF 权重下载(background bash + 跨 cron 周期接续)
+   - **install-env**:venv + pip + torch sm_12 修复 + 常见 build issue
+   - **run-and-repair**:试跑 entry_script,失败 LLM 自主修复(max 3 轮)
+   - **verify**:独立 SubAgent 判定能否跑(限 Read+Bash 工具防"顺手修")
+4. 模型 > 30B / gated 无 token / 资源短缺 → 产 API 调用骨架 + 中文使用指导
+5. 失败 3 轮收敛不了 → 写 `pending_human/<slug>.md` 等人手处理
+6. 写每日报告 + MCP `record_outcome` 回填给 scan
 
 ---
 
-## 架构概览
+## 架构
 
-<table>
-  <tr>
-    <td align="center" width="25%"><img src="docs/01-overall-architecture.png" alt="整体架构"><br><b>整体架构</b></td>
-    <td align="center" width="25%"><img src="docs/02-request-lifecycle.png" alt="请求生命周期"><br><b>请求生命周期</b></td>
-    <td align="center" width="25%"><img src="docs/03-tool-system.png" alt="工具系统"><br><b>工具系统</b></td>
-    <td align="center" width="25%"><img src="docs/04-multi-agent.png" alt="多 Agent 架构"><br><b>多 Agent 架构</b></td>
-  </tr>
-  <tr>
-    <td align="center" width="25%"><img src="docs/05-terminal-ui.png" alt="终端 UI"><br><b>终端 UI</b></td>
-    <td align="center" width="25%"><img src="docs/06-permission-security.png" alt="权限与安全"><br><b>权限与安全</b></td>
-    <td align="center" width="25%"><img src="docs/07-services-layer.png" alt="服务层"><br><b>服务层</b></td>
-    <td align="center" width="25%"><img src="docs/08-state-data-flow.png" alt="状态与数据流"><br><b>状态与数据流</b></td>
-  </tr>
-</table>
+```
+cron@10:30 ─→ /auto-daily ─→ daily-auto skill ─┐
+                                                │
+                                ┌───────────────┴────┐
+                                ▼                    ▼
+                          5 阶段 SubAgent       write-recommendation
+                                                       │
+                                                       ▼
+                                              reports/<date>.md
+                                              + MCP record_outcome
+```
+
+```
+/root/ai-auto-harness/                  (基于 claudecode_sourcecode1 fork,Bun + TypeScript)
+├── src/                                CC 源码(不动)
+├── bin/claude-haha                     CC 启动入口
+├── .claude/
+│   ├── CLAUDE.md                       项目硬约束 + 工作流
+│   ├── settings.json                   权限白名单 + MCP server 配置
+│   ├── skills/                         13 自定义 skill,CC 自动识别
+│   │   ├── auto-daily/SKILL.md         主 agent / cron 入口
+│   │   ├── auto-status/SKILL.md        /auto-status 只读状态
+│   │   ├── auto-deploy/SKILL.md        /auto-deploy <url> 手动单项目
+│   │   ├── auto-recover/SKILL.md       /auto-recover 强制接续
+│   │   ├── intake/SKILL.md             SubAgent 1
+│   │   ├── fetch-weights/SKILL.md      SubAgent 2(背景下载 + 跨 cron 接续)
+│   │   ├── install-env/SKILL.md        SubAgent 3
+│   │   ├── run-and-repair/SKILL.md     SubAgent 4(替代 Python repair_loop)
+│   │   ├── verify/SKILL.md             SubAgent 5(独立判定)
+│   │   ├── api-skeleton/SKILL.md       不能 self-host 时产 client.py + 指导
+│   │   ├── write-recommendation/SKILL.md 报告 + 回填
+│   │   ├── request-human-intervention/SKILL.md 人介入通道
+│   │   ├── preflight-gpu-disk/SKILL.md GPU/磁盘/gated/30B 子能力
+│   │   ├── verifier-corrector/SKILL.md 报告事实核验 + 回写
+│   │   ├── coverage-gaps/SKILL.md      跨日盲区追踪
+│   │   └── cost-analysis/SKILL.md      双路成本表标准化
+│   └── agents/                         5 SubAgent 角色定义(限工具集 + 反模式)
+├── cron/
+│   ├── daily.sh                        cron 入口(--bare + --add-dir + --settings)
+│   └── crontab.example
+├── workspace/<slug>/                   每项目隔离工作目录(gitignored)
+│   ├── state.json                      阶段进度(跨 cron 接续核心)
+│   ├── repo/                           git clone 的项目代码
+│   ├── venv/                           Python venv
+│   ├── .cache/                         HF/transformers 隔离 cache
+│   └── api_skeleton/                   API 路线时的产出
+├── runs/<run-id>/                      每次 cron 跑的 trace(gitignored)
+│   ├── meta.json
+│   ├── decisions.md                    agent 主动写的关键决策
+│   ├── intake.json / fetch.json / ...  各 SubAgent 返回
+│   └── transcript.jsonl                tool_use 流(--bare 模式下需 skill 内自己写)
+├── reports/<YYYY-MM-DD>.md             每日总报告(人读)
+├── memory/
+│   ├── projects/<slug>.md              项目专属经验(部署一次的踩坑记录)
+│   └── lessons/                        通用经验(跨项目复用)
+│       ├── torch-sm12.md               5090 sm_12 wheel 修复(3 方案)
+│       ├── hf-gated.md                 gated repo 处理(token vs license)
+│       └── flash-attn-build.md         prebuilt wheel 智能选择
+├── pending_human/<slug>.md             需要人手介入的项目(删文件即解除)
+├── state/blacklist.jsonl               agent 自主写入的 blacklist
+└── docs/superpowers/
+    ├── specs/                          设计文档
+    └── plans/                          实施 plan(本平台开发用)
+```
 
 ---
 
 ## 快速开始
 
-### 1. 安装 Bun
-
-本项目运行依赖 [Bun](https://bun.sh)。如果你的电脑还没有安装 Bun，可以先执行下面任一方式：
+### 1. 装 bun(若没装)
 
 ```bash
-# macOS / Linux（官方安装脚本）
 curl -fsSL https://bun.sh/install | bash
 ```
 
-如果在精简版 Linux 环境里提示 `unzip is required to install bun`，先安装 `unzip`：
+### 2. 装 CC 依赖
 
 ```bash
-# Ubuntu / Debian
-apt update && apt install -y unzip
-```
-
-```bash
-# macOS（Homebrew）
-brew install bun
-```
-
-```powershell
-# Windows（PowerShell）
-powershell -c "irm bun.sh/install.ps1 | iex"
-```
-
-安装完成后，重新打开终端并确认：
-
-```bash
-bun --version
-```
-
-### 2. 安装项目依赖
-
-```bash
+cd /root/ai-auto-harness
 bun install
 ```
 
-### 3. 配置环境变量
-
-复制示例文件并填入你的 API Key：
+### 3. 配 .env
 
 ```bash
 cp .env.example .env
+# 编辑:
+#   ANTHROPIC_API_KEY=<你的 key>
+#   ANTHROPIC_BASE_URL=<API endpoint,如 MiniMax / Astron / 官方>
+#   ANTHROPIC_MODEL=<模型 ID>
+#   HF_TOKEN=<可选,部署 gated repo 时需要>
 ```
 
-编辑 `.env`：
-
-```env
-# API 认证（二选一）
-ANTHROPIC_API_KEY=sk-xxx          # 标准 API Key（x-api-key 头）
-ANTHROPIC_AUTH_TOKEN=sk-xxx       # Bearer Token（Authorization 头）
-
-# API 端点（可选，默认 Anthropic 官方）
-ANTHROPIC_BASE_URL=https://api.minimaxi.com/anthropic
-
-# 模型配置
-ANTHROPIC_MODEL=MiniMax-M2.7-highspeed
-ANTHROPIC_DEFAULT_SONNET_MODEL=MiniMax-M2.7-highspeed
-ANTHROPIC_DEFAULT_HAIKU_MODEL=MiniMax-M2.7-highspeed
-ANTHROPIC_DEFAULT_OPUS_MODEL=MiniMax-M2.7-highspeed
-
-# 超时（毫秒）
-API_TIMEOUT_MS=3000000
-
-# 禁用遥测和非必要网络请求
-DISABLE_TELEMETRY=1
-CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-```
-
-### 4. 启动
-
-#### macOS / Linux
+### 4. 测试(只读,不动 GPU/磁盘)
 
 ```bash
-# 交互 TUI 模式（完整界面）
-./bin/claude-haha
-
-# 无头模式（单次问答）
-./bin/claude-haha -p "your prompt here"
-
-# 管道输入
-echo "explain this code" | ./bin/claude-haha -p
-
-# 查看所有选项
-./bin/claude-haha --help
+./bin/claude-haha \
+    --bare \
+    --add-dir . \
+    --settings .claude/settings.json \
+    --print "/auto-status"
 ```
 
-#### Windows
+应看到 GPU + 磁盘 + workspace 状态摘要(中文 markdown).
 
-> **前置要求**：必须安装 [Git for Windows](https://git-scm.com/download/win)（提供 Git Bash，项目内部 Shell 执行依赖它）。
-
-Windows 下启动脚本 `bin/claude-haha` 是 bash 脚本，无法在 cmd / PowerShell 中直接运行。请使用以下方式：
-
-**方式一：PowerShell / cmd 直接调用 Bun（推荐）**
-
-```powershell
-# 交互 TUI 模式
-bun --env-file=.env ./src/entrypoints/cli.tsx
-
-# 无头模式
-bun --env-file=.env ./src/entrypoints/cli.tsx -p "your prompt here"
-
-# 降级 Recovery CLI
-bun --env-file=.env ./src/localRecoveryCli.ts
-```
-
-**方式二：Git Bash 中运行**
+### 5. 手动单项目部署
 
 ```bash
-# 在 Git Bash 终端中，与 macOS/Linux 用法一致
-./bin/claude-haha
+./bin/claude-haha \
+    --bare \
+    --add-dir . \
+    --settings .claude/settings.json \
+    --print "/auto-deploy https://github.com/tencent-ailab/SongGeneration"
 ```
 
-> **注意**：部分功能（语音输入、Computer Use、Sandbox 隔离等）在 Windows 上不可用，不影响核心 TUI 交互。
+(会真跑 — clone repo + 拉 HF 权重 + 装环境 + run + verify;30-60 分钟)
 
----
-
-## 环境变量说明
-
-| 变量 | 必填 | 说明 |
-|------|------|------|
-| `ANTHROPIC_API_KEY` | 二选一 | API Key，通过 `x-api-key` 头发送 |
-| `ANTHROPIC_AUTH_TOKEN` | 二选一 | Auth Token，通过 `Authorization: Bearer` 头发送 |
-| `ANTHROPIC_BASE_URL` | 否 | 自定义 API 端点，默认 Anthropic 官方 |
-| `ANTHROPIC_MODEL` | 否 | 默认模型 |
-| `ANTHROPIC_DEFAULT_SONNET_MODEL` | 否 | Sonnet 级别模型映射 |
-| `ANTHROPIC_DEFAULT_HAIKU_MODEL` | 否 | Haiku 级别模型映射 |
-| `ANTHROPIC_DEFAULT_OPUS_MODEL` | 否 | Opus 级别模型映射 |
-| `API_TIMEOUT_MS` | 否 | API 请求超时，默认 600000 (10min) |
-| `DISABLE_TELEMETRY` | 否 | 设为 `1` 禁用遥测 |
-| `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | 否 | 设为 `1` 禁用非必要网络请求 |
-
----
-
-## 降级模式
-
-如果完整 TUI 出现问题，可以使用简化版 readline 交互模式：
+### 6. 部署 cron(每日自动)
 
 ```bash
-CLAUDE_CODE_FORCE_RECOVERY_CLI=1 ./bin/claude-haha
+crontab -e
+# 加:
+30 10 * * * /root/ai-auto-harness/cron/daily.sh
 ```
 
 ---
 
-## 相对于原始泄露源码的修复
+## 为什么用 `--bare`
 
-泄露的源码无法直接运行，主要修复了以下问题：
+CC 默认启动会做:OAuth / keychain reads / plugin sync / auto-memory / 等等 — 在公司内网 Privoxy 代理环境下,这些会触发 HTTP 拦截造成**启动挂死**.
 
-| 问题 | 根因 | 修复 |
-|------|------|------|
-| TUI 不启动 | 入口脚本把无参数启动路由到了 recovery CLI | 恢复走 `cli.tsx` 完整入口 |
-| 启动卡死 | `verify` skill 导入缺失的 `.md` 文件，Bun text loader 无限挂起 | 创建 stub `.md` 文件 |
-| `--print` 卡死 | `filePersistence/types.ts` 缺失 | 创建类型桩文件 |
-| `--print` 卡死 | `ultraplan/prompt.txt` 缺失 | 创建资源桩文件 |
-| **Enter 键无响应** | `modifiers-napi` native 包缺失，`isModifierPressed()` 抛异常导致 `handleEnter` 中断，`onSubmit` 永远不执行 | 加 try-catch 容错 |
-| setup 被跳过 | `preload.ts` 自动设置 `LOCAL_RECOVERY=1` 跳过全部初始化 | 移除默认设置 |
+`--bare` 跳过这些,Anthropic auth 严格走 `ANTHROPIC_API_KEY`,完全符合"workspace 内全权 + 不动 server 其他东西"的安全模型.
+
+代价:`--bare` 同时跳 hooks(SessionStart/PostToolUse/SessionEnd)— skill 内自己生成 run-id / 写 transcript / commit 报告.
 
 ---
 
-## 项目结构
+## 设计文档 + 实施 Plan
+
+完整设计(16 节):[docs/superpowers/specs/2026-05-19-ai-auto-harness-design.md](docs/superpowers/specs/2026-05-19-ai-auto-harness-design.md)
+
+实施 plan(46 task,Phase -1 → 4):[docs/superpowers/plans/2026-05-19-ai-auto-harness-implementation.md](docs/superpowers/plans/2026-05-19-ai-auto-harness-implementation.md)
+
+---
+
+## 上下游
 
 ```
-bin/claude-haha          # 入口脚本
-preload.ts               # Bun preload（设置 MACRO 全局变量）
-.env.example             # 环境变量模板
-src/
-├── entrypoints/cli.tsx  # CLI 主入口
-├── main.tsx             # TUI 主逻辑（Commander.js + React/Ink）
-├── localRecoveryCli.ts  # 降级 Recovery CLI
-├── setup.ts             # 启动初始化
-├── screens/REPL.tsx     # 交互 REPL 界面
-├── ink/                 # Ink 终端渲染引擎
-├── components/          # UI 组件
-├── tools/               # Agent 工具（Bash, Edit, Grep 等）
-├── commands/            # 斜杠命令（/commit, /review 等）
-├── skills/              # Skill 系统
-├── services/            # 服务层（API, MCP, OAuth 等）
-├── hooks/               # React hooks
-└── utils/               # 工具函数
+┌─────────────────────────┐         ┌─────────────────────────┐
+│  ai-daily-scan          │  MCP    │  ai-auto-harness        │
+│  (Python, 你的 GitHub)  │ ──────→ │  (本项目,公司 Gitea)    │
+│  - 每日 scan / Analyst  │  stdio  │  - 部署 / 验证 / 报告   │
+│  - 7 子 agent 流水线    │         │  - 13 skill / 5 SubAgent│
+│  - 产 findings.jsonl    │ ←─────  │  - 回填 outcomes.jsonl  │
+└─────────────────────────┘ MCP     └─────────────────────────┘
+
+[已 deprecated] auto-deploy-agent — Python 工程,prompt 经验已迁移到本平台 lessons
 ```
 
 ---
 
-## 技术栈
+## 维护
 
-| 类别 | 技术 |
-|------|------|
-| 运行时 | [Bun](https://bun.sh) |
-| 语言 | TypeScript |
-| 终端 UI | React + [Ink](https://github.com/vadimdemedes/ink) |
-| CLI 解析 | Commander.js |
-| API | Anthropic SDK |
-| 协议 | MCP, LSP |
+- **CC 升级跟进**:`git pull upstream main`(upstream remote 指向 claudecode_sourcecode1)
+- **自己的 commit 前缀**:全部用 `ai-auto: ...`,`git log --grep=ai-auto` 看自己 work
+- **新 lesson 积累**:run-and-repair / install-env SubAgent 自主写入 `memory/lessons/`(跨项目复用)
+- **磁盘清理**:定期清 `workspace/` 中 7 天未访问的项目 + 7 天以上 `runs/`(SessionEnd hook 在 TUI 模式下自动做;cron 模式需手动)
 
 ---
 
-## Disclaimer
+## 风险与注意
 
-本仓库基于 2026-03-31 从 Anthropic npm registry 泄露的 Claude Code 源码。所有原始源码版权归 [Anthropic](https://www.anthropic.com) 所有。仅供学习和研究用途。
+- **R2(待验证)**:`Bash(run_in_background=true)` + `setsid nohup` 在 CC `--print` 模式退出后能否真持久 — Phase 2 e2e 验证时确认
+- **R3(待验证)**:`--print` 模式撑得过 30+ 分钟 long-running session 吗 — 同上
+- **磁盘**:跑 SongGen 等中等模型(~15GB)+ FLUX 等(~30GB)+ 大模型(>50GB)前确认 free > 估算 + 50GB safety
+- **GPU**:本平台**严格 preflight 不抢训练 GPU**(单卡 ≥25GB used 拒动),所以训练时跑 cron 通常会触发 `pending_human/_resources.md`
+
+---
+
+*Powered by Claude Code(`--bare` 模式)+ ai-daily-scan MCP*
