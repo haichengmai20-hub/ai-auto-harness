@@ -7,6 +7,19 @@ agent: fetch-agent
 
 # fetch-weights
 
+## 落盘约定(必读)
+
+- **日志**:`$WORKSPACE/logs/fetch_weights.log` — huggingface-cli 全输出 + poll 摘要 append
+- **进度摘要**:`$WORKSPACE/progress.md`(人读,每次 poll 写一行)
+- **结果**:`$WORKSPACE/results/fetch.json` 和 `$WORKSPACE/results/weights.json`(权重元数据)
+- 旧约定 `progress_<repo>.log` 被废弃,改用统一的 `logs/fetch_weights.log`
+
+```bash
+mkdir -p "$WORKSPACE/logs" "$WORKSPACE/results"
+LOG="$WORKSPACE/logs/fetch_weights.log"
+echo "==== fetch-weights start at $(date -Iseconds) ====" >> "$LOG"
+```
+
 ## 你的输入(主 agent 传入)
 
 ```json
@@ -53,11 +66,13 @@ BG_SHELLS=$(jq -c '.fetch_state.bg_shells // []' "$WORKSPACE/state.json")
 
 ```bash
 # 用 setsid + nohup 双重保险脱离 parent process group
-setsid nohup huggingface-cli download \
-    "<repo>" \
-    --local-dir "$WORKSPACE/.cache/hf_models/<repo>" \
-    --resume-download \
-    > "$WORKSPACE/progress_<repo>.log" 2>&1 &
+# 注意:统一写到 logs/fetch_weights.log(多个 repo 都写同一个 log,带 prefix 标识)
+setsid nohup bash -c "
+  echo '==== fetching <repo> at \$(date -Iseconds) ====' >> '$WORKSPACE/logs/fetch_weights.log'
+  huggingface-cli download '<repo>' \
+      --local-dir '$WORKSPACE/.cache/hf_models/<repo>' \
+      --resume-download 2>&1
+" >> "$WORKSPACE/logs/fetch_weights.log" 2>&1 &
 PID=$!
 echo $PID > "$WORKSPACE/.cache/<repo>.pid"
 ```
@@ -77,8 +92,8 @@ jq --arg shell "$SHELL_ID" --arg pid "$PID" --arg repo "<repo>" --arg ts "$(date
 # 用 BashOutput(shell_id) 看新输出
 BashOutput(shell_id=<...>)
 
-# 或读 log 文件 tail
-tail -20 "$WORKSPACE/progress_<repo>.log"
+# 或读统一 log 文件 tail
+tail -50 "$WORKSPACE/logs/fetch_weights.log"
 ```
 
 每次 poll 都做这几件事:
@@ -130,6 +145,40 @@ ELAPSED_SEC=$(( $(date +%s) - $(date -d "$META_START" +%s) ))
 - 移到 weights_done
 - 从 weights_pending 移除
 - 更新 state.json
+
+## 第 8 步:return 前落盘 results JSON
+
+```bash
+# results/fetch.json — fetch 阶段总结
+cat > "$WORKSPACE/results/fetch.json" <<JSON
+{
+  "weights_done": [...],
+  "failed": [],
+  "paused_in_progress": <true|false>,
+  "bytes_total": <int>,
+  "completed_at": "$(date -Iseconds)"
+}
+JSON
+
+# results/weights.json — 权重元数据(便于事后核查每个 repo 下了多久 / 多大)
+cat > "$WORKSPACE/results/weights.json" <<JSON
+{
+  "repos": [
+    {
+      "repo": "tencent/SongGeneration",
+      "local_dir": "$WORKSPACE/.cache/hf_models/tencent/SongGeneration",
+      "bytes": <int>,
+      "started_at": "<from state.fetch_state>",
+      "completed_at": "$(date -Iseconds)",
+      "resumed": <true|false>,
+      "resume_count": <int>
+    }
+  ]
+}
+JSON
+
+echo "==== fetch-weights end at $(date -Iseconds) ====" >> "$LOG"
+```
 
 全部 done → return:
 

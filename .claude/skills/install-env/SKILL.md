@@ -7,6 +7,20 @@ agent: install-agent
 
 # install-env
 
+## 落盘约定(必读)
+
+- **日志**:`$WORKSPACE/logs/install_env.log` — venv 创建 + pip install + sm_12 检测 + 修复尝试 全输出
+- **结果**:`$WORKSPACE/results/install.json` — return schema
+- **环境快照**:`$WORKSPACE/results/environment.json` — torch / cuda / python / sm_arch / venv 路径(便于后续诊断)
+
+```bash
+mkdir -p "$WORKSPACE/logs" "$WORKSPACE/results"
+LOG="$WORKSPACE/logs/install_env.log"
+echo "==== install-env start at $(date -Iseconds) ====" >> "$LOG"
+
+# 所有 bash 命令都用这个模式: cmd 2>&1 | tee -a "$LOG"
+```
+
 ## 你的输入(主 agent 传入)
 
 ```json
@@ -33,15 +47,15 @@ cat memory/projects/<slug>.md          # 若该项目之前装过有经验
 
 ```bash
 cd "$WORKSPACE"
-python -m venv venv
+python -m venv venv 2>&1 | tee -a "$LOG"
 source venv/bin/activate
-which python  # 验证指向 workspace/<slug>/venv/bin/python
+which python 2>&1 | tee -a "$LOG"  # 验证指向 workspace/<slug>/venv/bin/python
 ```
 
 ### 第 2 步:升级核心工具
 
 ```bash
-pip install --upgrade pip setuptools wheel
+pip install --upgrade pip setuptools wheel 2>&1 | tee -a "$LOG"
 ```
 
 ### 第 3 步:装项目依赖
@@ -53,24 +67,23 @@ cd "$WORKSPACE/repo"
 
 # (a) 如果有 setup.py 或 pyproject.toml
 if [ -f "setup.py" ] || [ -f "pyproject.toml" ]; then
-    pip install -e .
+    pip install -e . 2>&1 | tee -a "$LOG"
 # (b) 否则 requirements.txt
 elif [ -f "requirements.txt" ]; then
-    pip install -r requirements.txt
+    pip install -r requirements.txt 2>&1 | tee -a "$LOG"
 # (c) 否则看 README quickstart
 else
-    # 读 README.md 找 pip install 命令
-    grep -A 5 "pip install" README.md
-    # 手抄出来执行
+    grep -A 5 "pip install" README.md | tee -a "$LOG"
+    # 手抄出来执行,加 2>&1 | tee -a "$LOG"
 fi
 ```
 
-记录用的方案 + 任何失败到 decisions.md.
+记录用的方案 + 任何失败到 `runs/$RUN_ID/decisions.md`.
 
 ### 第 4 步:torch sm_12 检测(5090 必做)
 
 ```bash
-python -c "import torch; archs = torch.cuda.get_arch_list(); print('archs:', archs); ok = any('120' in a or '12.0' in a for a in archs); print('sm_12_ok:', ok); exit(0 if ok else 1)"
+python -c "import torch; archs = torch.cuda.get_arch_list(); print('archs:', archs); ok = any('120' in a or '12.0' in a for a in archs); print('sm_12_ok:', ok); exit(0 if ok else 1)" 2>&1 | tee -a "$LOG"
 ```
 
 **不通过**:
@@ -133,6 +146,38 @@ python -c "<from entry_script 推断的顶层 import,比如 import flux 或 from
 - 某新 build 工具失败的修复套路 → 新建 `memory/lessons/<topic>.md`
 
 **已有 lesson append 格式**:看 `memory/lessons/torch-sm12.md` 末尾追加新章节,不要重写整个文件.
+
+### 第 8 步:return 前落盘 results JSON + environment.json
+
+```bash
+# 环境快照 — 给 verify 和后续诊断用
+cat > "$WORKSPACE/results/environment.json" <<JSON
+{
+  "venv_path": "$WORKSPACE/venv",
+  "python": "$(python --version 2>&1)",
+  "pip": "$(pip --version 2>&1)",
+  "torch": "$(python -c 'import torch; print(torch.__version__)' 2>&1)",
+  "cuda": "$(python -c 'import torch; print(torch.version.cuda)' 2>&1)",
+  "torch_archs": $(python -c 'import torch,json; print(json.dumps(torch.cuda.get_arch_list()))' 2>&1),
+  "sm_12_supported": $(python -c 'import torch; print("true" if any("120" in a or "12.0" in a for a in torch.cuda.get_arch_list()) else "false")' 2>&1),
+  "captured_at": "$(date -Iseconds)"
+}
+JSON
+
+# install 结果
+cat > "$WORKSPACE/results/install.json" <<JSON
+{
+  "venv_path": "$WORKSPACE/venv",
+  "deps_ok": <true|false>,
+  "fixes_applied": [...],
+  "warnings": [...],
+  "blocked": <true|false>,
+  "completed_at": "$(date -Iseconds)"
+}
+JSON
+
+echo "==== install-env end at $(date -Iseconds) ====" >> "$LOG"
+```
 
 ## 返回 schema
 

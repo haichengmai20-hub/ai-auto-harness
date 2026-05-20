@@ -7,6 +7,16 @@ agent: intake-agent
 
 # intake
 
+## 落盘约定(必读)
+
+本 SubAgent 的所有产物:
+
+- **日志**:`$WORKSPACE/logs/intake.log` — 所有 bash stdout/stderr 用 `2>&1 | tee -a "$LOG"` append 写入
+- **结果**:`$WORKSPACE/results/intake.json` — return schema 的 JSON,**覆写**
+- 主 agent 收到 return 后还会同时写一份到 `runs/$RUN_ID/intake.json`(本次 cron 快照)
+
+约定见 `/root/ai-auto-harness/.claude/CLAUDE.md` "落盘约定"段.
+
 ## 工作流(按顺序)
 
 ### 1. workspace 初始化
@@ -14,7 +24,11 @@ agent: intake-agent
 ```bash
 SLUG="<from main agent>"
 WORKSPACE="/root/ai-auto-harness/workspace/$SLUG"
-mkdir -p "$WORKSPACE"/{.cache/huggingface,.cache/hf_hub,.cache/transformers,repo}
+mkdir -p "$WORKSPACE"/{.cache/huggingface,.cache/hf_hub,.cache/transformers,repo,logs,results}
+
+# 后续所有 bash 命令的输出 append 到这个日志
+LOG="$WORKSPACE/logs/intake.log"
+echo "==== intake start at $(date -Iseconds) ====" >> "$LOG"
 ```
 
 写初始 state.json:
@@ -41,10 +55,10 @@ JSON
 
 ```bash
 cd "$WORKSPACE"
-git clone --depth=1 "$GITHUB_URL" repo
+git clone --depth=1 "$GITHUB_URL" repo 2>&1 | tee -a "$LOG"
 ```
 
-失败 → `return {"blocked": ["git_clone_failed", "<error msg>"]}`
+失败 → `return {"blocked": ["git_clone_failed", "<error msg>"]}`(stderr 已 append 到 LOG)
 
 ### 3. 读核心文件
 
@@ -66,8 +80,8 @@ git clone --depth=1 "$GITHUB_URL" repo
 ### 5. 校准 hf_deps
 
 ```bash
-grep -rn "from_pretrained" "$WORKSPACE/repo/" --include="*.py" 2>/dev/null | head -20
-grep -rn "hf_hub_download\|snapshot_download" "$WORKSPACE/repo/" --include="*.py" 2>/dev/null | head -20
+grep -rn "from_pretrained" "$WORKSPACE/repo/" --include="*.py" 2>/dev/null | tee -a "$LOG" | head -20
+grep -rn "hf_hub_download\|snapshot_download" "$WORKSPACE/repo/" --include="*.py" 2>/dev/null | tee -a "$LOG" | head -20
 ```
 
 提取实际引用的 repo 名,与主 agent 传入的 `hf_repos` 比对.补全或修正.
@@ -92,7 +106,23 @@ jq --arg phase fetching \
 - `blocked` 非空 → 调 **request-human-intervention skill** 写 `pending_human/<slug>.md`,state.phase=`paused_for_human`
 - 不要自己重试(主 agent 决策)
 
-## 返回 schema
+### 8. 返回前落盘 results JSON
+
+```bash
+cat > "$WORKSPACE/results/intake.json" <<JSON
+{
+  "entry_script": "<推断出的>",
+  "hf_deps": [...],
+  "gpu_picks": [...],
+  "blocked": [...],
+  "ready_to_fetch": <true|false>,
+  "completed_at": "$(date -Iseconds)"
+}
+JSON
+echo "==== intake end at $(date -Iseconds) ====" >> "$LOG"
+```
+
+## 返回 schema(同时 return 给主 agent)
 
 ```json
 {

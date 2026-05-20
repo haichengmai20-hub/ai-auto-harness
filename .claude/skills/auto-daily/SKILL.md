@@ -25,6 +25,27 @@ echo "{\"started_at\":\"$(date -Iseconds)\",\"run_id\":\"$RUN_ID\"}" > "runs/$RU
 
 记住 `$RUN_ID`,后续每步都要写到 `runs/$RUN_ID/`(decisions.md、SubAgent return 等)。
 
+**任务 2 选好项目后,在 dispatch 第一个 SubAgent 前必须创建项目落盘目录**:
+
+```bash
+SLUG="<挑中的项目 slug>"
+WORKSPACE="workspace/$SLUG"
+mkdir -p "$WORKSPACE/logs" "$WORKSPACE/results"
+```
+
+这样所有 SubAgent 进来都能直接落 `$WORKSPACE/logs/<phase>.log` 和 `$WORKSPACE/results/<phase>.json`(详见根 `.claude/CLAUDE.md` 的"落盘约定"段).
+
+**双写原则**(每个 SubAgent 返回后,主 agent 把它的 result JSON 同时写两份):
+
+```bash
+# SubAgent 返回时
+SUBAGENT_RESULT='<JSON from SubAgent>'
+# 写项目级(覆写,workspace 侧"最新"快照)
+echo "$SUBAGENT_RESULT" > "$WORKSPACE/results/${PHASE}.json"
+# 写 run 级(本次 cron 独立快照,审计)
+echo "$SUBAGENT_RESULT" > "runs/$RUN_ID/${PHASE}.json"
+```
+
 ## 工作流(顺序执行)
 
 ### 任务 1:接续与积压检查

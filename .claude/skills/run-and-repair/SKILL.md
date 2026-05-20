@@ -13,6 +13,23 @@ agent: runner-agent
 
 替代 `auto-deploy-agent/modules/runner/repair_loop.py` 那套手写 5 轮 while + Rule-based decider.
 
+## 落盘约定(必读)
+
+- **运行日志**:`$WORKSPACE/logs/run_and_repair.log` — 每轮试跑的 stdout/stderr append(多轮累积)
+- **修复轨迹**:`$WORKSPACE/logs/fixes.log` — 每次修复 append 一行(简短文字,JSON Line 也行)
+- **结果**:`$WORKSPACE/results/run.json` — RunResult
+
+```bash
+mkdir -p "$WORKSPACE/logs" "$WORKSPACE/results"
+LOG="$WORKSPACE/logs/run_and_repair.log"
+FIXES="$WORKSPACE/logs/fixes.log"
+echo "==== run-and-repair start at $(date -Iseconds) ====" >> "$LOG"
+```
+
+每次修复都同时:
+1. 把修复尝试 append 一行到 `fixes.log`(给后续审计用,人能看)
+2. 把详细决策 append 到 `runs/$RUN_ID/decisions.md`(本次 cron 内的决策上下文)
+
 ## 你的输入(主 agent 传入)
 
 ```json
@@ -42,9 +59,10 @@ export TRANSFORMERS_CACHE="$WORKSPACE/.cache/transformers"
 
 ```bash
 cd "$WORKSPACE/repo"
-$ENTRY_SCRIPT > "$WORKSPACE/run.log" 2>&1
+echo "---- round $ROUND attempt at $(date -Iseconds) ----" >> "$LOG"
+$ENTRY_SCRIPT >> "$LOG" 2>&1
 EXIT=$?
-echo "exit_code=$EXIT"
+echo "exit_code=$EXIT" | tee -a "$LOG"
 ```
 
 **长任务**(模型推理可能 10 分钟+):
@@ -130,10 +148,14 @@ PID=$(cat "$WORKSPACE/.cache/run.pid" 2>/dev/null)
 - **修配置**:`Edit workspace/<slug>/repo/configs/<yaml>`(同样先 Read)
 - **修依赖**:`pip install/uninstall` — 写到 fixes_applied
 
-### 每个修复都强制做这件事
+### 每个修复都强制做这两件事
 
-写一行到 `runs/$RUN_ID/decisions.md`:
+1. 简短一行 append 到 `$WORKSPACE/logs/fixes.log`(给后续审计 / 多个 cron 跨 run 看):
+```bash
+echo "$(date -Iseconds) round=$ROUND error=CUDA_OOM fix=batch_size_4_to_1 file=configs/inference.yaml" >> "$WORKSPACE/logs/fixes.log"
+```
 
+2. 详细决策 append 到 `runs/$RUN_ID/decisions.md`(本次 cron 内的上下文):
 ```markdown
 - 2026-05-19T11:20 by runner-agent (round 1/3): 检测到 CUDA OOM(stderr 含 "CUDA out of memory"),把 configs/inference.yaml 的 batch_size 从 4 改成 1。期望重跑通过。
 ```
@@ -207,6 +229,26 @@ if round_count == 3 and not passed:
 ```
 
 如果 `<topic>.md` 已存在,**append**(在文件末尾加新段落);如果不存在,**新建** topic 文件.
+
+## 返回前落盘 results JSON
+
+```bash
+cat > "$WORKSPACE/results/run.json" <<JSON
+{
+  "passed": <true|false>,
+  "error_class": <"CUDA_OOM" | "MODULE_MISSING" | ... | null>,
+  "repair_count": <int>,
+  "stdout_tail": "<last 50 lines from $LOG>",
+  "gpu_snapshot": {...},
+  "fixes_applied": [...],
+  "post_conditions_met": {...},
+  "blocked": <bool>,
+  "paused_for_human": <bool>,
+  "completed_at": "$(date -Iseconds)"
+}
+JSON
+echo "==== run-and-repair end at $(date -Iseconds) ====" >> "$LOG"
+```
 
 ## 返回 schema
 

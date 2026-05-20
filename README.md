@@ -6,7 +6,7 @@
 
 ---
 
-## 📍 这是什么(给老板/产品看)
+## 这是什么
 
 一个 **cron 驱动的自动化平台**,每天早上 10:30 自动跑一遍:
 
@@ -22,7 +22,7 @@
 
 ---
 
-## 🎯 为什么有这个项目(它解决什么问题)
+## 为什么有这个项目
 
 ### 痛点
 
@@ -125,7 +125,7 @@
 
 ---
 
-## 🧠 5 个核心设计机制(为什么这么做)
+## 5 个核心设计机制(为什么这么做)
 
 ### 1. SubAgent 隔离(避免上下文污染)
 
@@ -238,7 +238,7 @@ export TRANSFORMERS_CACHE=$WORKSPACE/.cache/transformers
 
 ---
 
-## 📋 5 阶段 SubAgent 详细流程
+## 5 阶段 SubAgent 详细流程
 
 ### Stage 1:`intake` — 准备工作
 
@@ -283,7 +283,7 @@ export TRANSFORMERS_CACHE=$WORKSPACE/.cache/transformers
 
 ---
 
-## 📁 完整目录结构
+## 完整目录结构
 
 ```
 /root/ai-auto-harness/                  (基于 claudecode_sourcecode1 fork)
@@ -557,7 +557,7 @@ git log --grep=ai-auto
 
 ---
 
-## 🚧 已知限制 / 待验证
+## 已知限制 / 待验证
 
 | # | 项 | 状态 |
 |---|---|---|
@@ -570,7 +570,7 @@ git log --grep=ai-auto
 
 ---
 
-## 📚 深入阅读
+## 深入阅读
 
 - **完整设计文档**(16 节,含数据 schema / Flux 8 痛点对照 / human-in-loop / 风险登记):
   → [docs/superpowers/specs/2026-05-19-ai-auto-harness-design.md](docs/superpowers/specs/2026-05-19-ai-auto-harness-design.md)

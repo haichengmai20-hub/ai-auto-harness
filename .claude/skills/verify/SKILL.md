@@ -7,6 +7,21 @@ agent: verify-agent
 
 # verify
 
+## 落盘约定(必读)
+
+- **日志**:`$WORKSPACE/logs/verify.log` — 启动检查 + smoke test + GPU 监测 全输出 append
+- **结果**:`$WORKSPACE/results/verify.json` — return schema
+
+```bash
+mkdir -p "$WORKSPACE/logs" "$WORKSPACE/results"
+LOG="$WORKSPACE/logs/verify.log"
+echo "==== verify start at $(date -Iseconds) ====" >> "$LOG"
+```
+
+注:你**只 Read + Bash**(无 Edit/Write),所以"写日志"也只能通过 `tee -a "$LOG"` 这样的 bash 命令(`bash -c 'cmd 2>&1' | tee -a "$LOG"` 或 `cmd 2>&1 >> "$LOG"`).
+
+`results/verify.json` 用 `bash -c 'cat > $WORKSPACE/results/verify.json <<JSON ... JSON'` 写.
+
 ## 你的输入(主 agent 传入)
 
 ```json
@@ -36,8 +51,9 @@ export TRANSFORMERS_CACHE="$WORKSPACE/.cache/transformers"
 
 ```bash
 cd "$WORKSPACE/repo"
-$ENTRY_SCRIPT --help 2>&1 | head -20
-# 或者 python -c "<from entry_script 推断的顶层 import>"
+echo "---- startup check ----" >> "$LOG"
+$ENTRY_SCRIPT --help 2>&1 | tee -a "$LOG" | head -20
+# 或者 python -c "<from entry_script 推断的顶层 import>" 2>&1 | tee -a "$LOG"
 ```
 
 判定:
@@ -57,7 +73,8 @@ GPU=$(jq -r '.intake_result.gpu_picks[0]' "$WORKSPACE/state.json" 2>/dev/null ||
 export CUDA_VISIBLE_DEVICES=$GPU
 
 # 跑 smoke (timeout 适度短,smoke 应该是几分钟级,不是几十分钟)
-timeout 600 <smoke_cmd> 2>&1 | tail -50
+echo "---- smoke test ----" >> "$LOG"
+timeout 600 <smoke_cmd> 2>&1 | tee -a "$LOG" | tail -50
 ```
 
 判定输出"合理性"(LLM 用 domain knowledge):
@@ -76,7 +93,8 @@ timeout 600 <smoke_cmd> 2>&1 | tail -50
 第 2 步跑的同时(或单独再跑一次 smoke),另一个 bash poll:
 
 ```bash
-nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader -l 2 | head -10
+echo "---- gpu utilization ----" >> "$LOG"
+nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader -l 2 | head -10 | tee -a "$LOG"
 ```
 
 判定:
@@ -140,13 +158,33 @@ GPU 利用低(< 1GB used 或全程 0% 利用)→ `passed=false, failed_at="gpu_u
 }
 ```
 
-## 强制要求
+## 强制要求(返回前)
 
-- 写一条 entry 到 `runs/$RUN_ID/decisions.md`:
-  ```markdown
-  - <ts> by verify-agent: startup ✓ / smoke ✓ / gpu_util ✓ → PASS
-  ```
-- 写一条 entry 到 `runs/$RUN_ID/verify.json`(本 SubAgent 的 return)
+1. **写 results/verify.json**(用 bash heredoc,因为你无 Write 工具):
+   ```bash
+   bash -c "cat > '$WORKSPACE/results/verify.json' <<JSON
+   {
+     \"passed\": <true|false>,
+     \"failed_at\": <null | step name>,
+     \"evidence\": { ... },
+     \"notes\": \"<判定说明>\",
+     \"confidence\": \"<high|medium|low>\",
+     \"completed_at\": \"$(date -Iseconds)\"
+   }
+   JSON"
+   ```
+
+2. **append 一条到 `runs/$RUN_ID/decisions.md`**(同样用 bash echo / cat):
+   ```bash
+   echo "- $(date -Iseconds) by verify-agent: startup ✓ / smoke ✓ / gpu_util ✓ → PASS" >> "runs/$RUN_ID/decisions.md"
+   ```
+
+3. **结束日志**:
+   ```bash
+   echo "==== verify end at $(date -Iseconds) ====" >> "$LOG"
+   ```
+
+主 agent 会另外把 return JSON 也写到 `runs/$RUN_ID/verify.json`(本次 cron 快照).
 
 ## 我做错了什么?常见诱惑
 

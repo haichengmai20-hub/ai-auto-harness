@@ -35,6 +35,48 @@
 每个项目部署用 5 个 SubAgent 串行,每个 SubAgent 独立 context.
 SubAgent 5(verify)**禁止读** state.json 的 run_result 字段 — 独立判定原则。
 
+## 落盘约定(每个 SubAgent 必须遵守)
+
+平台所有 SubAgent 的中间产物落盘到这两类位置:
+
+### 项目级(跨 cron 累积,看 slug 即可找到)
+
+```
+workspace/<slug>/
+├── state.json                      总状态(已有)
+├── logs/                           [集中日志,跨 cron append]
+│   ├── intake.log                  Stage 1: clone + 读 README + preflight 的 bash stdout/stderr
+│   ├── fetch_weights.log           Stage 2: huggingface-cli download 的完整输出
+│   ├── install_env.log             Stage 3: venv build + pip install 的完整输出
+│   ├── run_and_repair.log          Stage 4: 每轮试跑的 stdout/stderr(多轮 append)
+│   ├── verify.log                  Stage 5: smoke test 的完整输出
+│   └── fixes.log                   [累积]agent 修复轨迹(每次修复 append 一行)
+└── results/                        [最新阶段 result JSON,覆写]
+    ├── intake.json                 同 SubAgent return,workspace 侧最新一份
+    ├── fetch.json
+    ├── install.json
+    ├── environment.json            torch / cuda / python / sm_arch 快照
+    ├── weights.json                hf_repos 下载元数据(下完时间 / 大小 / 是否 resume)
+    ├── run.json                    RunResult
+    └── verify.json                 VerifyState
+```
+
+### Run 级(每次 cron run 一份独立快照,审计用)
+
+```
+runs/<run-id>/
+├── meta.json                       run 元数据
+├── decisions.md                    主 agent + 各 SubAgent 写的关键决策
+├── intake.json / fetch.json / ...  各 SubAgent 本次 run 的返回(快照,不覆写)
+└── transcript.jsonl                tool_use 流(--bare 模式下 skill 自己 append 写入)
+```
+
+**双写原则**:每个 SubAgent return 时**同时写两份**:
+- `workspace/<slug>/results/<phase>.json` — 覆写(最新)
+- `runs/<run-id>/<phase>.json` — append(本次 run 独立快照)
+
+日志只写 `workspace/<slug>/logs/<phase>.log`(累积 append,不覆写).
+
 ## 不要做
 
 - 不要在主 agent 直接跑 `git clone` / `pip install` / `python script.py` — 那是 SubAgent 的事
