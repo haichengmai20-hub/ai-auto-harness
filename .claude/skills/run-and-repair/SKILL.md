@@ -163,11 +163,50 @@ if round_count == 3 and not passed:
 # 不要硬试第 4 轮
 ```
 
-## 第 6 步:积累经验
+## 第 6 步:积累经验(lesson 写入机制)
 
-若修复成功且是非常规问题:
-- 项目级 → `memory/projects/<slug>.md` 追加
-- 通用级(其他项目能用上)→ `memory/lessons/<topic>.md` 追加段落(不覆盖)
+修复成功后,判断是否写经验文件 — **判断标准 3 问**:
+
+| 问题 | yes → 写哪里 |
+|---|---|
+| 修复是这个项目特有的(改了具体 config / 项目 own 代码)? | `memory/projects/<slug>.md` 追加 |
+| 修复方法**任何用类似 stack 的项目**都可能用上? | `memory/lessons/<topic>.md` 追加段落 |
+| 都不是(只是 1 行参数微调)? | **不写**(过度积累 = 噪声) |
+
+### 通用 lesson 的典型例子(写)
+
+- 5090 sm_12 不支持 torch wheel 怎么修 → `memory/lessons/torch-sm12.md`
+- flash-attn prebuilt wheel 选择逻辑 → `memory/lessons/flash-attn-build.md`
+- HF gated repo 401 区分 token vs license → `memory/lessons/hf-gated.md`
+- diffusers / transformers 之间版本协调 → `memory/lessons/<新>.md`
+
+### 项目专属的典型例子(写 projects/)
+
+- "SongGeneration 的 entry_script 在 `sample.py` 不在 `main.py`" → `memory/projects/song-generation.md`
+- "Flux 的 inference 要先跑 `download_weights.sh`" → `memory/projects/flux.md`
+
+### 不要写的例子(噪声)
+
+- "batch_size 从 4 改成 1 OOM 解决了" — 这是常识不是 lesson
+- "重启 venv 就好了" — 没有可复用价值
+- "改了某个 config 的 yaml 路径" — 项目特有 + 太琐碎
+
+### 写 lesson 的格式
+
+**append 段落**(不覆盖)— 格式参考 `memory/lessons/torch-sm12.md` 已有的:
+
+```markdown
+## <现象 / 触发条件>
+
+<内容...>
+
+### 修复(按优先级)
+
+1. ...
+2. ...
+```
+
+如果 `<topic>.md` 已存在,**append**(在文件末尾加新段落);如果不存在,**新建** topic 文件.
 
 ## 返回 schema
 

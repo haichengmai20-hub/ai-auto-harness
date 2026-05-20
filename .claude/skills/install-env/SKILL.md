@@ -106,20 +106,33 @@ python -c "<from entry_script 推断的顶层 import,比如 import flux 或 from
 
 失败 → 看 stderr 缺什么 module → pip install 补 → 重试
 
-### 第 7 步:写经验
+### 第 7 步:写经验(lesson 写入机制)
 
-若做了非常规修复(装 nightly torch、prebuilt wheel、特定版本回退等),写 `memory/projects/<slug>.md`:
+修复成功后,**判断 3 问**(同 run-and-repair):
+
+| 问题 | yes → 写哪里 |
+|---|---|
+| 修复是这个项目特有的(项目 own 的依赖 pin / 配置)? | `memory/projects/<slug>.md` 追加 |
+| 修复方法任何 5090 项目都可能用上? | `memory/lessons/<topic>.md` 追加段落(append,不覆盖) |
+| 都不是(只是版本微调)? | **不写**(noise) |
+
+**项目专属经验例子**(写 projects/):
 
 ```markdown
 # <slug> install 经验
 
-- 用 nightly cu124 torch(默认 stable 不支持 sm_12)
+- 用 nightly cu124 torch(项目 requirements pin torch==2.5,与默认 stable 不兼容)
 - flash-attn 装的 2.7.4 prebuilt wheel(cu124 + torch 2.7 + abiFALSE + cp310)
 - bitsandbytes 退到 0.43.x(与 torch 2.7 兼容)
-- 其他: ...
+- 项目自带 install.sh 用法:`bash install.sh --skip-flash-attn`
 ```
 
-如果发现一个新通用经验(其他项目能用上)→ 同时更新 `memory/lessons/<topic>.md`(append 段落,**不要覆盖**).
+**通用经验例子**(写 lessons/):
+
+- 5090 sm_12 → 改 `memory/lessons/torch-sm12.md`(若有新方案)
+- 某新 build 工具失败的修复套路 → 新建 `memory/lessons/<topic>.md`
+
+**已有 lesson append 格式**:看 `memory/lessons/torch-sm12.md` 末尾追加新章节,不要重写整个文件.
 
 ## 返回 schema
 
