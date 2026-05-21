@@ -42,8 +42,29 @@ cd "$HARNESS_ROOT"
 mkdir -p "$LOG_DIR"
 echo "{\"started_at\":\"$(date -Iseconds)\",\"prompt\":$(echo "$PROMPT" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}" > "$LOG_DIR/meta.json"
 
+# ============ 缓存隔离(硬阻塞 #1 修复)============
+# 系统 ~/.cache/huggingface 已有 24GB 含 SongGen 权重 cache,如果不在 env 层隔离,
+# huggingface-cli download 会软链接到已有 cache,30 秒完成 == 作弊.
+# skill prompt 让 LLM 在每个 bash 前 export,但是软约束 — LLM 可能漏掉.
+# 这里在 env 层强制设默认值,即便 LLM 忘 export,也走我们的隔离 cache.
+ISOLATED_CACHE="${ISOLATED_CACHE_DIR:-$LOG_DIR/.cache}"
+mkdir -p "$ISOLATED_CACHE"/{huggingface,torch,pip,xdg}
+export HF_HOME="$ISOLATED_CACHE/huggingface"
+export HF_HUB_CACHE="$ISOLATED_CACHE/huggingface"
+export TRANSFORMERS_CACHE="$ISOLATED_CACHE/huggingface"
+export TORCH_HOME="$ISOLATED_CACHE/torch"
+export PIP_CACHE_DIR="$ISOLATED_CACHE/pip"
+export XDG_CACHE_HOME="$ISOLATED_CACHE/xdg"
+echo "isolated cache: $ISOLATED_CACHE" >> "$LOG_DIR/meta.json"
+
 CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
 IS_SANDBOX=1 \
+HF_HOME="$HF_HOME" \
+HF_HUB_CACHE="$HF_HUB_CACHE" \
+TRANSFORMERS_CACHE="$TRANSFORMERS_CACHE" \
+TORCH_HOME="$TORCH_HOME" \
+PIP_CACHE_DIR="$PIP_CACHE_DIR" \
+XDG_CACHE_HOME="$XDG_CACHE_HOME" \
 "$CLAUDE_HAHA_BIN" \
     -p "$PROMPT" \
     --output-format stream-json \

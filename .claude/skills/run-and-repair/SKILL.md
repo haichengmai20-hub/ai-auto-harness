@@ -53,6 +53,31 @@ export HF_HUB_CACHE="$WORKSPACE/.cache/hf_hub"
 export TRANSFORMERS_CACHE="$WORKSPACE/.cache/transformers"
 ```
 
+## 第 0.5 步:GPU pre-flight(在跑任何 GPU workload 前必做)
+
+即使 install-env 已经检测过 torch sm_12,本阶段开跑前也要 verify 一次 — 因为可能后续 SubAgent 改过环境 / 卸装过包.
+
+```bash
+echo "---- GPU pre-flight ----" >> "$LOG"
+python -c "
+import torch
+print('cuda_available:', torch.cuda.is_available())
+print('device_count:', torch.cuda.device_count())
+print('capability:', torch.cuda.get_device_capability())
+print('archs:', torch.cuda.get_arch_list())
+" 2>&1 | tee -a "$LOG"
+PFL_EXIT=$?
+```
+
+**判定**:
+- `cuda_available=False` → 装错了,**不要继续**(GPU 利用率会是 0,verify 会 fail).
+  → 调 request-human-intervention skill,reason_category=`stuck_repair_3x`,what_blocked="torch CUDA 不可用,install-env 阶段装错了"
+- `capability` 不含 (12, 0) 且当前是 5090 集群 → sm_12 wheel 没装好.
+  → 调 request-human-intervention,reason="torch sm_12 not supported"
+- 都 OK → 进第 1 步试跑.
+
+**不要**装作没看见就继续试跑 — 那会浪费几分钟跑出 NaN / OOM / CPU fallback 才发现.
+
 ## 第 1 步:试跑 entry_script(每轮先做)
 
 **短任务**(脚本几秒到几分钟内出结果):

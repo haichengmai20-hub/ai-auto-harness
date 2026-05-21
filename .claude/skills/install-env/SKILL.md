@@ -7,6 +7,45 @@ agent: install-agent
 
 # install-env
 
+## 🔴 硬规则(必须遵守,违反会污染 venv)
+
+### 串行 pip(禁止并行)
+
+**Never run multiple pip installs for the same venv in parallel.**
+
+错误做法:
+```bash
+pip install torch &
+pip install transformers &
+wait
+# 同一 venv 并行写,site-packages 元数据损坏,某些包看似装上但 import 失败
+```
+
+正确做法:
+```bash
+pip install torch 2>&1 | tee -a "$LOG"          # 等完成
+pip install transformers 2>&1 | tee -a "$LOG"   # 再下一个
+pip install -r requirements.txt 2>&1 | tee -a "$LOG"
+```
+
+每个 pip 命令必须 **foreground + tee + 等完成**,再发下一个.
+
+### GPU pre-flight(装完 torch 必做)
+
+装完 torch 之后,**真用 GPU 前必须 verify**:
+
+```bash
+python -c "
+import torch
+print('cuda_available:', torch.cuda.is_available())
+print('device_count:', torch.cuda.device_count())
+print('capability:', torch.cuda.get_device_capability())
+print('archs:', torch.cuda.get_arch_list())
+" 2>&1 | tee -a "$LOG"
+```
+
+异常情况 → 第 4 步 sm_12 修复.若 `cuda_available=False` 就装错了,**绝不要**继续到 run-and-repair 让它在 CPU 上跑(GPU 利用率 0% verify 会 fail).
+
 ## 落盘约定(必读)
 
 - **日志**:`$WORKSPACE/logs/install_env.log` — venv 创建 + pip install + sm_12 检测 + 修复尝试 全输出
@@ -60,7 +99,7 @@ pip install --upgrade pip setuptools wheel 2>&1 | tee -a "$LOG"
 
 ### 第 3 步:装项目依赖
 
-优先级:
+优先级(**注意:每次只跑一个 pip 命令,foreground + tee,等完成再下一个**):
 
 ```bash
 cd "$WORKSPACE/repo"
@@ -74,9 +113,12 @@ elif [ -f "requirements.txt" ]; then
 # (c) 否则看 README quickstart
 else
     grep -A 5 "pip install" README.md | tee -a "$LOG"
-    # 手抄出来执行,加 2>&1 | tee -a "$LOG"
+    # 手抄出来执行,**一条一条来**,每条 2>&1 | tee -a "$LOG"
 fi
 ```
+
+**禁止**:`pip install A &; pip install B &; wait`(并行写同一 venv 损坏 site-packages)
+**禁止**:把 pip 放 background(`run_in_background=true`)— pip 必须 foreground
 
 记录用的方案 + 任何失败到 `runs/$RUN_ID/decisions.md`.
 

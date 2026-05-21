@@ -26,11 +26,28 @@ cd "$HARNESS_ROOT"
 LOG_DIR="$HARNESS_ROOT/runs/cron-$(date +%Y-%m-%d-%H%M%S)"
 mkdir -p "$LOG_DIR"
 
+# ============ 缓存隔离(硬阻塞 #1 修复)============
+# 在 env 层强制设默认 cache 位置,避免 LLM 漏掉 export 时复用系统 ~/.cache/ 作弊.
+ISOLATED_CACHE="$LOG_DIR/.cache"
+mkdir -p "$ISOLATED_CACHE"/{huggingface,torch,pip,xdg}
+export HF_HOME="$ISOLATED_CACHE/huggingface"
+export HF_HUB_CACHE="$ISOLATED_CACHE/huggingface"
+export TRANSFORMERS_CACHE="$ISOLATED_CACHE/huggingface"
+export TORCH_HOME="$ISOLATED_CACHE/torch"
+export PIP_CACHE_DIR="$ISOLATED_CACHE/pip"
+export XDG_CACHE_HOME="$ISOLATED_CACHE/xdg"
+
 # 触发主 agent 工作流 — 用自然语言 prompt 触发 auto-daily skill
 PROMPT="请使用 auto-daily skill 执行今日 AI 项目部署工作流(读 ai-daily-scan findings → 挑 1 个 → 5 阶段 SubAgent → 写报告)."
 
 CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
 IS_SANDBOX=1 \
+HF_HOME="$HF_HOME" \
+HF_HUB_CACHE="$HF_HUB_CACHE" \
+TRANSFORMERS_CACHE="$TRANSFORMERS_CACHE" \
+TORCH_HOME="$TORCH_HOME" \
+PIP_CACHE_DIR="$PIP_CACHE_DIR" \
+XDG_CACHE_HOME="$XDG_CACHE_HOME" \
 "$CLAUDE_HAHA_BIN" \
     -p "$PROMPT" \
     --output-format stream-json \
