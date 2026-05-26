@@ -266,3 +266,34 @@ TRAP_IN_MD=$(grep -cE "^### 已知踩坑 [0-9]" reports/runbooks/xxx.md)
 | cleanup log | `workspace/song-generation-run2/logs/cleanup.log` | 713 bytes |
 | decisions append | `runs/songgen-e2e-run3-resume-20260522-094040/decisions.md` | +2 行 |
 | L1 test ndjson | `runs/phase5-l1-test-20260525-154424/harness.stdout.ndjson` | 100 lines |
+
+---
+
+## 六、修复实施记录(2026-05-26 回填)
+
+> 本节回填"谁修了什么"——把上面只列问题的 retro 闭环成"问题 + 解决"。
+> 验证方法:对当前文件 grep 各 P 标记 / 关键字段;commit 指 git hash。
+
+| ID | 优先级 | 状态 | 落地位置 | commit |
+|---|---|---|---|---|
+| P3-1 fixes.log 降级抽取 | 中 | ✅ 已修 | runbook SKILL 第 1 步加 `FIXES_SOURCE` fallback(fixes.log 缺失时从 run-and-repair.json `.repairs[]` 抽) | `9ee6fb3` |
+| P3-2 节编号不一致 | 中 | ✅ 已修 | runbook SKILL 表头"节编号与 `_template.md` 严格一致" + 脚注禁自创编号 | `9ee6fb3` |
+| P3-3 踩坑筛选规则 | 低 | ✅ 已修 | runbook SKILL 第 4 步 3 档筛选(有修复命令✅ / 被 skip 标⚠️未修复 / INFO 不写) | `9ee6fb3` |
+| P3-4 "腅环境"错字 | 低 | ✅ 已修 | `_template.md` Stage 标题写死 + SKILL 第 5 步"逐字复制 Stage 1=clone…5=验证" | `9ee6fb3` |
+| P3-5 huggingface-cli→hf(R7) | **高** | ✅ 已修 | runbook SKILL R7 替换步骤 + `_template.md` Stage 2 用 `hf download` | `9ee6fb3` |
+| P3-6 验收 grep 不精确 | 低 | ✅ 已修 | `scripts/validate-runbook.sh` 用 `^### 已知踩坑 [0-9]` 精确匹配 | `42bdc5c` |
+| P4-1 cleanup 缺 PHASE_END | **高** | ✅ 已修 | cleanup SKILL 第 5 步补 `echo PHASE_END` | `9ee6fb3` |
+| P4-2 dry_run `removed` 语义 | 中 | ✅ 已修 | cleanup SKILL dry_run 用 `would_remove` 字段 | `9ee6fb3` |
+| P4-3 G3 runbook_path 相对/绝对 | 中 | ✅ 已修 | cleanup SKILL 用 `HARNESS_ROOT` 拼接判断 | `9ee6fb3` |
+| P4-4 freed_bytes vs du 单位 | 低 | ✅ 已修 | cleanup SKILL 加 `freed_gib` 字段(GiB,与 du -sh 对齐) | `9ee6fb3` |
+| P4-5 故意触发防护测试 | **高** | ✅ 已做 | G1-G4 5 个 case 全 PASS,见 `pending_human/guard-test-report-2026-05-26.md` + `runs/p4-5-guard-test-20260526-163202/` | (产物,gitignore) |
+| P4-6 repo/.cache 不存在未报 WARN | 中 | ✅ 已修 | cleanup SKILL 每个白名单目标都 log `NOT EXIST` | `9ee6fb3` |
+| S-1 SKILL 约束太软 | **高** | 🟡 部分缓解 | `_template.md` 把易错字段(Stage 标题/命令)写死缓解;但 SubAgent 无法传 `--append-system-prompt` 的根本限制仍在,留待平台层后续解 | `9ee6fb3` |
+| S-2 验收脚本自动化 | 中 | ✅ 已做 | 新建 `scripts/validate-runbook.sh` + `validate-cleanup.sh` | `42bdc5c` |
+| S-3 traps_documented 交叉校验 | 低 | ✅ 已修 | `scripts/validate-runbook.sh` 校验 json `traps_documented` == md 实际条数 | `42bdc5c` |
+
+**汇总**:15 条中 **14 条完全落地 + 1 条(S-1)部分缓解**。高优先级 4 条(P3-5/P4-1/P4-5/S-1)全部处理。
+
+**第 16 条(用户实测补充,非 retro 原列)**:cleanup 不覆盖 `runs/<run-id>/.cache/`(实测 22GB 残留)。**未动** —— 待用户在 A(清自己 run cache)/B(清所有 done run)/C(独立 skill)/D(文档化周清)中决策。
+
+**尚未做(phase 5 收尾,见 plan Task 5-13)**:主 agent 串联 runbook+cleanup(Task 5-7)、完整 e2e(Task 8)、cleanup 切 dry_run=false(Task 9)、周边 skill 适配 archived(Task 10-12)、settings.json deny(Task 13)。

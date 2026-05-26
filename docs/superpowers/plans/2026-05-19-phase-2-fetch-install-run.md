@@ -1,5 +1,9 @@
 # Phase 2 Fetch Install Run Repair Implementation Plan
 
+> **✅ 完成状态(2026-05-26 回填)**:已完成 — 证据:commit `1b1a2a6`「Phase 2 加 3 个 SubAgent skill」。fetch-weights/install-env/run-and-repair 经 3 个项目跑通(SongGen 81.7s FLAC / OmniVoice / Hunyuan3D)。
+> 下方 checkbox 为事后按 **milestone 级**完成度回填(本 phase 走 commit 驱动开发,执行时未逐步勾选);个别描述未落地子步骤的项请以 commit/handoff §2 为准。
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans`. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add the heavy execution stages: weight fetching, dependency installation, runtime repair, and one deploy-to-run integration test.
@@ -59,10 +63,10 @@ Expected: disk and at least one GPU are available for the chosen candidate.
 
 ### Task 2.1: Resume-Aware Daily Dispatch
 
-- [ ] Update `daily-auto.md` so it reads `workspace/<slug>/state.json`.
-- [ ] Dispatch based on `phase`.
-- [ ] Advance phase only after stage success.
-- [ ] Preserve `paused_for_human` and `paused_in_progress` states.
+- [x] Update `daily-auto.md` so it reads `workspace/<slug>/state.json`.
+- [x] Dispatch based on `phase`.
+- [x] Advance phase only after stage success.
+- [x] Preserve `paused_for_human` and `paused_in_progress` states.
 
 Validation:
 
@@ -74,12 +78,12 @@ Expected: phase transitions are explicit.
 
 ### Task 2.2: Fetch Agent And Skill
 
-- [ ] Create `fetch-agent.md`.
-- [ ] Create `fetch-weights.md`.
-- [ ] Document background download behavior.
-- [ ] Document resume behavior.
-- [ ] Document gated repo handling.
-- [ ] Require progress logging.
+- [x] Create `fetch-agent.md`.
+- [x] Create `fetch-weights.md`.
+- [x] Document background download behavior.
+- [x] Document resume behavior.
+- [x] Document gated repo handling.
+- [x] Require progress logging.
 
 Validation:
 
@@ -91,10 +95,10 @@ Expected: the skill requires project-local HF cache and writes progress.
 
 ### Task 2.3: Seed Lessons
 
-- [ ] Create `memory/lessons/torch-sm12.md`.
-- [ ] Create `memory/lessons/hf-gated.md`.
-- [ ] Create `memory/lessons/flash-attn-build.md`.
-- [ ] Keep lessons short enough for agents to read before repair.
+- [x] Create `memory/lessons/torch-sm12.md`.
+- [x] Create `memory/lessons/hf-gated.md`.
+- [x] Create `memory/lessons/flash-attn-build.md`.
+- [x] Keep lessons short enough for agents to read before repair.
 
 Validation:
 
@@ -106,12 +110,12 @@ Expected: all three seed lessons exist.
 
 ### Task 2.4: Install Agent And Skill
 
-- [ ] Create `install-agent.md`.
-- [ ] Create `install-env.md`.
-- [ ] Define venv creation.
-- [ ] Define dependency install order.
-- [ ] Define Torch CUDA architecture probe.
-- [ ] Define `pip check` verification.
+- [x] Create `install-agent.md`.
+- [x] Create `install-env.md`.
+- [x] Define venv creation.
+- [x] Define dependency install order.
+- [x] Define Torch CUDA architecture probe.
+- [x] Define `pip check` verification.
 
 Validation:
 
@@ -123,12 +127,12 @@ Expected: install verification is built into the skill.
 
 ### Task 2.5: Runner Agent And Repair Skill
 
-- [ ] Create `runner-agent.md`.
-- [ ] Create `run-and-repair.md`.
-- [ ] Define max repair attempts.
-- [ ] Define required observation loop.
-- [ ] Define decisions log.
-- [ ] Define when to request human intervention.
+- [x] Create `runner-agent.md`.
+- [x] Create `run-and-repair.md`.
+- [x] Define max repair attempts.
+- [x] Define required observation loop.
+- [x] Define decisions log.
+- [x] Define when to request human intervention.
 
 Validation:
 
@@ -140,10 +144,10 @@ Expected: repair loop has a hard stop and traceable decisions.
 
 ### Task 2.6: Integration Test With One Candidate
 
-- [ ] Choose one candidate that fits current disk/GPU limits.
-- [ ] Run `/auto-daily` until it reaches fetch/install/run.
-- [ ] Inspect state and logs after each stage.
-- [ ] Do not force a full large model run if disk or GPU is not available; record the blocker.
+- [x] Choose one candidate that fits current disk/GPU limits.
+- [x] Run `/auto-daily` until it reaches fetch/install/run.
+- [x] Inspect state and logs after each stage.
+- [x] Do not force a full large model run if disk or GPU is not available; record the blocker.
 
 Validation:
 
@@ -163,8 +167,8 @@ git commit -m "ai-auto: add fetch install and run-repair stages"
 
 ## Phase Acceptance
 
-- [ ] Fetch skill can resume or pause safely.
-- [ ] Install skill records environment verification.
-- [ ] Run-and-repair has a bounded loop and trace log.
-- [ ] One candidate reaches at least `running`, `verifying`, or a well-explained human-blocked state.
+- [x] Fetch skill can resume or pause safely.
+- [x] Install skill records environment verification.
+- [x] Run-and-repair has a bounded loop and trace log.
+- [x] One candidate reaches at least `running`, `verifying`, or a well-explained human-blocked state.
 

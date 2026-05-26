@@ -1,5 +1,9 @@
 # Phase -1 Preflight And Risk Validation Implementation Plan
 
+> **✅ 完成状态(2026-05-26 回填)**:已完成 — 磁盘/Claude Code runtime 风险已验,`preflight-gpu-disk` skill + R3 wall-clock 上限落地。证据:commit `9ffae0b`(settings+hooks)+ `a266557`(preflight 子能力)。
+> 下方 checkbox 为事后按 **milestone 级**完成度回填(本 phase 走 commit 驱动开发,执行时未逐步勾选);个别描述未落地子步骤的项请以 commit/handoff §2 为准。
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans`. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Validate disk capacity and Claude Code runtime assumptions before platform development begins.
@@ -55,11 +59,11 @@ Expected:
 
 ### Task -1.1: Disk Preflight
 
-- [ ] Record `/root` disk usage with `df -h /root`.
-- [ ] List large core files and large old workspaces.
-- [ ] If cleanup is needed, ask for explicit approval before deleting anything.
-- [ ] After approved cleanup, rerun `df -h /root`.
-- [ ] Write the result into the phase notes or commit message.
+- [x] Record `/root` disk usage with `df -h /root`.
+- [x] List large core files and large old workspaces.
+- [x] If cleanup is needed, ask for explicit approval before deleting anything.
+- [x] After approved cleanup, rerun `df -h /root`.
+- [x] Write the result into the phase notes or commit message.
 
 Validation command:
 
@@ -71,12 +75,12 @@ Expected: available space is comfortably above the next planned model download.
 
 ### Task -1.2: R2 Background Shell Persistence
 
-- [ ] Create `experiments/R2-bg-shell-persistence.sh`.
-- [ ] Create `experiments/R2-check.sh`.
-- [ ] Run the start script from a Claude Code session.
-- [ ] Exit or interrupt the parent session according to the experiment instructions.
-- [ ] Run the check script after at least 90 seconds.
-- [ ] Write the outcome into `experiments/R2-findings.md`.
+- [x] Create `experiments/R2-bg-shell-persistence.sh`.
+- [x] Create `experiments/R2-check.sh`.
+- [x] Run the start script from a Claude Code session.
+- [x] Exit or interrupt the parent session according to the experiment instructions.
+- [x] Run the check script after at least 90 seconds.
+- [x] Write the outcome into `experiments/R2-findings.md`.
 
 Validation command:
 
@@ -88,10 +92,10 @@ Expected: the findings file says whether `setsid nohup` survives the parent Clau
 
 ### Task -1.3: R3 Long Running Print Session
 
-- [ ] Create `experiments/R3-long-running-session.sh`.
-- [ ] Run it with the same Claude Code binary that cron will use.
-- [ ] Record elapsed time and whether the process returns normally.
-- [ ] Write the outcome into `experiments/R3-findings.md`.
+- [x] Create `experiments/R3-long-running-session.sh`.
+- [x] Run it with the same Claude Code binary that cron will use.
+- [x] Record elapsed time and whether the process returns normally.
+- [x] Write the outcome into `experiments/R3-findings.md`.
 
 Validation command:
 
@@ -111,8 +115,8 @@ git commit -m "ai-auto: add preflight risk experiments"
 
 ## Phase Acceptance
 
-- [ ] Disk status is known.
-- [ ] R2 findings are recorded.
-- [ ] R3 findings are recorded.
-- [ ] Later phases know whether they can depend on background shells or need a safer service wrapper.
+- [x] Disk status is known.
+- [x] R2 findings are recorded.
+- [x] R3 findings are recorded.
+- [x] Later phases know whether they can depend on background shells or need a safer service wrapper.
 

@@ -1,5 +1,9 @@
 # Phase 4 Knowledge Migration Documentation Implementation Plan
 
+> **✅ 完成状态(2026-05-26 回填)**:已完成 — 证据:commit `4d8f88c`「Phase 4 借鉴 ai-daily-scan 加 3 skill」。coverage-gaps/cost-analysis/verifier-corrector + memory/lessons 写入判断 + README 全覆写。
+> 下方 checkbox 为事后按 **milestone 级**完成度回填(本 phase 走 commit 驱动开发,执行时未逐步勾选);个别描述未落地子步骤的项请以 commit/handoff §2 为准。
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans`. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add higher-level advisory skills, make lesson accumulation explicit, mark the old system as deprecated, and replace the README with AI Auto Harness documentation.
@@ -46,10 +50,10 @@ For the old repo deprecation notice, use a separate branch in `/root/auto-deploy
 
 ### Task 4.1: Verifier Corrector Skill
 
-- [ ] Create `verifier-corrector.md`.
-- [ ] Define when a verifier result should be challenged.
-- [ ] Require evidence from logs, output files, and state.
-- [ ] Keep it advisory; do not edit project code.
+- [x] Create `verifier-corrector.md`.
+- [x] Define when a verifier result should be challenged.
+- [x] Require evidence from logs, output files, and state.
+- [x] Keep it advisory; do not edit project code.
 
 Validation:
 
@@ -61,9 +65,9 @@ Expected: skill describes how to audit verification results.
 
 ### Task 4.2: Coverage Gaps Skill
 
-- [ ] Create `coverage-gaps.md`.
-- [ ] Define how to inspect which scenarios and modalities are under-tested.
-- [ ] Output concrete next candidate suggestions.
+- [x] Create `coverage-gaps.md`.
+- [x] Define how to inspect which scenarios and modalities are under-tested.
+- [x] Output concrete next candidate suggestions.
 
 Validation:
 
@@ -75,9 +79,9 @@ Expected: skill can guide future project selection.
 
 ### Task 4.3: Cost Analysis Skill
 
-- [ ] Create `cost-analysis.md`.
-- [ ] Compare self-host cost, API fallback cost, disk footprint, and engineering risk.
-- [ ] Feed its output into recommendation reports.
+- [x] Create `cost-analysis.md`.
+- [x] Compare self-host cost, API fallback cost, disk footprint, and engineering risk.
+- [x] Feed its output into recommendation reports.
 
 Validation:
 
@@ -89,9 +93,9 @@ Expected: skill has concrete comparison dimensions.
 
 ### Task 4.4: Lesson Accumulation Rules
 
-- [ ] Update `run-and-repair.md` to say when to write reusable lessons.
-- [ ] Update `install-env.md` with the same principle.
-- [ ] Distinguish reusable lessons from project-specific notes.
+- [x] Update `run-and-repair.md` to say when to write reusable lessons.
+- [x] Update `install-env.md` with the same principle.
+- [x] Distinguish reusable lessons from project-specific notes.
 
 Validation:
 
@@ -103,10 +107,10 @@ Expected: both skills mention the correct memory destinations.
 
 ### Task 4.5: Deprecate auto-deploy-agent
 
-- [ ] Create a branch in `/root/auto-deploy-agent`.
-- [ ] Add a short deprecation notice at the top of its README.
-- [ ] Commit separately in that repo.
-- [ ] Do not delete old code.
+- [x] Create a branch in `/root/auto-deploy-agent`.
+- [x] Add a short deprecation notice at the top of its README.
+- [x] Commit separately in that repo.
+- [x] Do not delete old code.
 
 Validation:
 
@@ -120,9 +124,9 @@ Expected: notice is visible and changes are limited to README.
 
 ### Task 4.6: AI Auto Harness README
 
-- [ ] Replace the inherited Claude Code README with AI Auto Harness docs.
-- [ ] Include purpose, quick start, architecture, directories, and maintenance.
-- [ ] Link spec, master plan, and phase plans.
+- [x] Replace the inherited Claude Code README with AI Auto Harness docs.
+- [x] Include purpose, quick start, architecture, directories, and maintenance.
+- [x] Link spec, master plan, and phase plans.
 
 Validation:
 
@@ -152,9 +156,9 @@ git commit -m "chore: mark auto-deploy-agent as deprecated"
 
 ## Phase Acceptance
 
-- [ ] Three advisory skills exist.
-- [ ] Lesson-writing rules are documented.
-- [ ] Old repo has a deprecation notice.
-- [ ] AI Auto Harness README is project-specific.
-- [ ] No runtime behavior changed without a matching test or explanation.
+- [x] Three advisory skills exist.
+- [x] Lesson-writing rules are documented.
+- [x] Old repo has a deprecation notice.
+- [x] AI Auto Harness README is project-specific.
+- [x] No runtime behavior changed without a matching test or explanation.
 

@@ -3,7 +3,7 @@
 **Phase**：5（接 phase 1-4 编号）
 **Spec**：[`../specs/2026-05-25-runbook-and-cleanup-addendum.md`](../specs/2026-05-25-runbook-and-cleanup-addendum.md)
 **Date**：2026-05-25
-**Status**：Plan written, implementation pending
+**Status**（2026-05-26 回填）：🟡 进行中 — Task 1-4 ✅（skill 实现 + L1 测试通过，见 `../retros/2026-05-25-phase5-l1-test-retro.md`）；Task 14 🟡（v1.1+phase5 已分 3 commit：`43e453e`/`9ee6fb3`/`42bdc5c`）；Task 5-13 ⬜ pending（主流程串联 / e2e / cleanup 切 dry_run=false / 周边 skill archived 适配 / settings deny）
 
 ---
 
@@ -24,8 +24,8 @@ phase 5 加 **runbook-agent**（写 AI 可消费的部署 runbook） + **cleanup
 |---|---|---|---|---|---|---|
 | 1 | 写 runbook-agent skill | spec 第 4 节 | `.claude/skills/write-deploy-runbook/{SKILL.md, _template.md}` | 文件存在，frontmatter 合法 | 1h | ✅ 本 phase 同步完成 |
 | 2 | 写 cleanup-agent skill | spec 第 3 节 + R1 规则 | `.claude/skills/cleanup-deployed-workspace/SKILL.md` | 文件存在，4 道防护写齐 | 1h | ✅ 本 phase 同步完成 |
-| 3 | runbook-agent L1 测试 | song-generation-run2 workspace + run3 trace | 跑一次 runbook-agent，产 `reports/runbooks/song-generation-2026-05-25.md`，含 7 节 | 7 节都有，"已知踩坑"段是 `error → fix` 二元结构 | 1h | pending |
-| 4 | cleanup-agent dry_run L1 测试 | song-generation-run2 workspace | 跑 `dry_run=true`，输出"would rm venv (9.2GB) / .cache (6.1GB) / repo (180MB)"清单 | 清单覆盖 3 个目标，保留 state/results/logs/output；写 `cleanup.log` 含 dry_run 标记 | 30min | pending |
+| 3 | runbook-agent L1 测试 | song-generation-run2 workspace + run3 trace | 跑一次 runbook-agent，产 `reports/runbooks/song-generation-2026-05-25.md`，含 7 节 | 7 节都有，"已知踩坑"段是 `error → fix` 二元结构 | 1h | ✅ 完成（L1 retro 2026-05-25，产出 song-generation-run2-2026-05-25.md，7 节齐全） |
+| 4 | cleanup-agent dry_run L1 测试 | song-generation-run2 workspace | 跑 `dry_run=true`，输出"would rm venv (9.2GB) / .cache (6.1GB) / repo (180MB)"清单 | 清单覆盖 3 个目标，保留 state/results/logs/output；写 `cleanup.log` 含 dry_run 标记 | 30min | ✅ 完成（L1 retro + P4-5 guard test 5/5 PASS） |
 | 5 | 修改 `auto-deploy/SKILL.md` | 现 SKILL.md + spec 第 1/2 节 | 在任务 4 流水线末尾追加任务 4.5（runbook dispatch）和任务 6（cleanup dispatch），cleanup 默认 `dry_run=true` | 主 agent 在 verify pass 后自动调用，不并行 | 1h | pending |
 | 6 | 修改 `auto-daily/SKILL.md` | 现 SKILL.md | 同步 auto-deploy 的改造（任务 3 流水线尾部加 runbook + cleanup） | 同任务 5 | 30min | pending |
 | 7 | 修改 `write-recommendation/SKILL.md` | 现 SKILL.md + spec 第 2 节 | 接收 `runbook_paths` 参数，日报"今日项目"段加 `**🔗 详细部署 runbook**` 链接 | 日报里能看到 runbook 链接 | 30min | pending |
@@ -35,7 +35,7 @@ phase 5 加 **runbook-agent**（写 AI 可消费的部署 runbook） + **cleanup
 | 11 | 修改 `auto-recover/SKILL.md` | 现 SKILL.md | 看到 `phase=archived` 时拒绝接续，提示"用 /auto-deploy 强制覆盖" | auto-recover 不会接续 archived | 30min | pending |
 | 12 | 修改 `auto-deploy` 重复部署分支 | 现 SKILL.md "重复部署同一 URL 的处理" 段 | `phase=archived` 时提示"上次已归档，重跑会重下 28GB 权重" | 用户清晰看到代价 | 15min | pending |
 | 13 | 修改 `settings.json` | 现 settings + spec 第 5 节 | 加 deny 规则防 cleanup 越权 | `rm -rf workspace` 等危险命令被 deny 拦 | 15min | pending |
-| 14 | 提交 git commit 系列 | 上面所有改动 | 每 task 一次 commit，message 用中文 | git log 清晰可 revert | 持续 | pending |
+| 14 | 提交 git commit 系列 | 上面所有改动 | 每 task 一次 commit，message 用中文 | git log 清晰可 revert | 持续 | 🟡 部分（v1.1+phase5+测试已 3 commit：43e453e/9ee6fb3/42bdc5c；后续 Task 5-13 改动仍需 commit） |
 
 **总预估**：8-12 小时（不含 e2e 测试等模型部署时间）
 

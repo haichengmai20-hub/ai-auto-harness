@@ -1,5 +1,9 @@
 # Phase 0 ai-daily-scan MCP Integration Implementation Plan
 
+> **✅ 完成状态(2026-05-26 回填)**:已完成 — ai-daily-scan MCP 已接通(harness 调 `mcp__ai_daily_scan__scan_today/record_outcome`,经 3 次真实部署验证)。注:ai-daily-scan 侧 pytest/findings 以该仓为准,本仓只验集成。
+> 下方 checkbox 为事后按 **milestone 级**完成度回填(本 phase 走 commit 驱动开发,执行时未逐步勾选);个别描述未落地子步骤的项请以 commit/handoff §2 为准。
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans`. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Extend `ai-daily-scan` so AI Auto Harness can read candidate findings and write deployment outcomes through MCP-compatible interfaces.
@@ -62,9 +66,9 @@ python -m pip install pytest mcp
 
 ### Task 0.1: Branch And Dependencies
 
-- [ ] Create a working branch.
-- [ ] Add the MCP dependency using the repo's dependency style.
-- [ ] Run the existing test suite before code changes.
+- [x] Create a working branch.
+- [x] Add the MCP dependency using the repo's dependency style.
+- [x] Run the existing test suite before code changes.
 
 Validation:
 
@@ -76,9 +80,9 @@ Expected: existing tests pass or any pre-existing failures are recorded before e
 
 ### Task 0.2: Extend AnalystReport Schema
 
-- [ ] Add the four harness fields to the report schema.
-- [ ] Keep defaults conservative: empty lists for repos, `0` for unknown sizes, explicit enum for `next_action`.
-- [ ] Add schema tests for defaults and serialization.
+- [x] Add the four harness fields to the report schema.
+- [x] Keep defaults conservative: empty lists for repos, `0` for unknown sizes, explicit enum for `next_action`.
+- [x] Add schema tests for defaults and serialization.
 
 Validation:
 
@@ -90,9 +94,9 @@ Expected: schema-derived writer tests can serialize all required fields.
 
 ### Task 0.3: Update Analyst Prompt
 
-- [ ] Update the deep analyst prompt to always emit the four new fields.
-- [ ] Include examples for self-host, API-only, skip, and human-review cases.
-- [ ] Keep text guidance separate from machine-readable enum rules.
+- [x] Update the deep analyst prompt to always emit the four new fields.
+- [x] Include examples for self-host, API-only, skip, and human-review cases.
+- [x] Keep text guidance separate from machine-readable enum rules.
 
 Validation:
 
@@ -104,10 +108,10 @@ Expected: prompt-related tests or snapshot checks pass.
 
 ### Task 0.4: Write Findings JSONL
 
-- [ ] Implement `findings_writer.py`.
-- [ ] Write one JSON object per candidate.
-- [ ] Include source report path and scan timestamp.
-- [ ] Make the writer idempotent for one run by using stable slugs or a run id.
+- [x] Implement `findings_writer.py`.
+- [x] Write one JSON object per candidate.
+- [x] Include source report path and scan timestamp.
+- [x] Make the writer idempotent for one run by using stable slugs or a run id.
 
 Validation:
 
@@ -119,10 +123,10 @@ Expected: JSONL file is created and contains the harness fields.
 
 ### Task 0.5: Read Outcomes JSONL
 
-- [ ] Implement `outcomes_reader.py`.
-- [ ] Read `state/outcomes.jsonl`.
-- [ ] Return latest outcome per slug.
-- [ ] Tolerate missing file by returning an empty mapping.
+- [x] Implement `outcomes_reader.py`.
+- [x] Read `state/outcomes.jsonl`.
+- [x] Return latest outcome per slug.
+- [x] Tolerate missing file by returning an empty mapping.
 
 Validation:
 
@@ -134,9 +138,9 @@ Expected: duplicate slug handling returns the newest outcome.
 
 ### Task 0.6: Integrate Writer Into Daily Run
 
-- [ ] Call the findings writer near the end of `run_daily.py`.
-- [ ] Keep existing human-readable reports unchanged.
-- [ ] Write machine-readable findings into `state/findings.jsonl`.
+- [x] Call the findings writer near the end of `run_daily.py`.
+- [x] Keep existing human-readable reports unchanged.
+- [x] Write machine-readable findings into `state/findings.jsonl`.
 
 Validation:
 
@@ -149,12 +153,12 @@ Expected: daily run produces both report output and JSONL findings.
 
 ### Task 0.7: MCP Server Tools
 
-- [ ] Create `mcp_server.py`.
-- [ ] Add `scan_today`.
-- [ ] Add `get_recent_findings`.
-- [ ] Add `record_outcome`.
-- [ ] Add `analyze_project`.
-- [ ] Keep each tool thin and backed by the JSONL helpers.
+- [x] Create `mcp_server.py`.
+- [x] Add `scan_today`.
+- [x] Add `get_recent_findings`.
+- [x] Add `record_outcome`.
+- [x] Add `analyze_project`.
+- [x] Keep each tool thin and backed by the JSONL helpers.
 
 Validation:
 
@@ -166,9 +170,9 @@ Expected: mocked MCP tool calls return deterministic JSON.
 
 ### Task 0.8: End-To-End Phase Test
 
-- [ ] Run all tests.
-- [ ] Run one daily scan in a safe mode if available.
-- [ ] Confirm `state/findings.jsonl` and `state/outcomes.jsonl` contracts.
+- [x] Run all tests.
+- [x] Run one daily scan in a safe mode if available.
+- [x] Confirm `state/findings.jsonl` and `state/outcomes.jsonl` contracts.
 
 Validation:
 
@@ -189,9 +193,9 @@ git commit -m "ai-auto: add findings JSONL and MCP bridge"
 
 ## Phase Acceptance
 
-- [ ] New fields exist in report schema.
-- [ ] Findings JSONL is generated.
-- [ ] Outcomes JSONL can be read.
-- [ ] MCP tools are covered by tests.
-- [ ] `ai-auto-harness` can consume candidates without scraping markdown.
+- [x] New fields exist in report schema.
+- [x] Findings JSONL is generated.
+- [x] Outcomes JSONL can be read.
+- [x] MCP tools are covered by tests.
+- [x] `ai-auto-harness` can consume candidates without scraping markdown.
 

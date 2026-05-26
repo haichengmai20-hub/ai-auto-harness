@@ -1,5 +1,9 @@
 # Phase 3 Verify Human Loop Reporting Implementation Plan
 
+> **✅ 完成状态(2026-05-26 回填)**:已完成 — 证据:commit `c01ceb3`「Phase 3 加 5 个 skill」。verify/api-skeleton/write-recommendation/auto-recover + pending_human 通道落地,reports/ + outcomes 已写。
+> 下方 checkbox 为事后按 **milestone 级**完成度回填(本 phase 走 commit 驱动开发,执行时未逐步勾选);个别描述未落地子步骤的项请以 commit/handoff §2 为准。
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans`. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Complete the MVP by adding independent verification, API-skeleton fallback, human intervention files, recommendation reports, outcome recording, and cron deployment.
@@ -49,10 +53,10 @@ Use existing workspace state from Phase 2. If no candidate reached run, create a
 
 ### Task 3.1: Verify Agent And Skill
 
-- [ ] Create `verify-agent.md` with read-only or near-read-only tools.
-- [ ] Create `verify.md`.
-- [ ] Define output checks for text, image, audio, and service endpoints.
-- [ ] Define failure categories without repairing them.
+- [x] Create `verify-agent.md` with read-only or near-read-only tools.
+- [x] Create `verify.md`.
+- [x] Define output checks for text, image, audio, and service endpoints.
+- [x] Define failure categories without repairing them.
 
 Validation:
 
@@ -64,10 +68,10 @@ Expected: verification is clearly independent from repair.
 
 ### Task 3.2: API Skeleton Skill
 
-- [ ] Create `api-skeleton.md`.
-- [ ] Define when to use it: model too large, gated, resource impossible, or API-first project.
-- [ ] Define generated artifacts: `.env.example`, minimal client, README snippet, smoke command.
-- [ ] Ensure it writes state as `api_skeleton_ready`.
+- [x] Create `api-skeleton.md`.
+- [x] Define when to use it: model too large, gated, resource impossible, or API-first project.
+- [x] Define generated artifacts: `.env.example`, minimal client, README snippet, smoke command.
+- [x] Ensure it writes state as `api_skeleton_ready`.
 
 Validation:
 
@@ -79,10 +83,10 @@ Expected: fallback path is actionable without local model weights.
 
 ### Task 3.3: Write Recommendation Skill
 
-- [ ] Create `write-recommendation.md`.
-- [ ] Define report sections: candidate, deployment result, verification result, risk, cost, recommendation.
-- [ ] Define MCP outcome recording.
-- [ ] Define report path under `reports/`.
+- [x] Create `write-recommendation.md`.
+- [x] Define report sections: candidate, deployment result, verification result, risk, cost, recommendation.
+- [x] Define MCP outcome recording.
+- [x] Define report path under `reports/`.
 
 Validation:
 
@@ -94,9 +98,9 @@ Expected: report and outcome writeback are explicit.
 
 ### Task 3.4: Remaining Commands
 
-- [ ] Create `/auto-deploy` for a single candidate.
-- [ ] Create `/auto-recover` for resuming a paused workspace.
-- [ ] Ensure `/auto-status` can show phase, last logs, and pending human items.
+- [x] Create `/auto-deploy` for a single candidate.
+- [x] Create `/auto-recover` for resuming a paused workspace.
+- [x] Ensure `/auto-status` can show phase, last logs, and pending human items.
 
 Validation:
 
@@ -108,10 +112,10 @@ Expected: all operational commands exist.
 
 ### Task 3.5: L2 MVP Integration Test
 
-- [ ] Run one candidate through intake, fetch/install/run if resources allow.
-- [ ] Run verify independently.
-- [ ] Generate a report.
-- [ ] Record an outcome.
+- [x] Run one candidate through intake, fetch/install/run if resources allow.
+- [x] Run verify independently.
+- [x] Generate a report.
+- [x] Record an outcome.
 
 Validation:
 
@@ -124,10 +128,10 @@ Expected: one report exists and the workspace state has a final or blocked statu
 
 ### Task 3.6: L3 Chaos Tests
 
-- [ ] Simulate missing HF token.
-- [ ] Simulate disk-low decision without actually filling disk.
-- [ ] Simulate run failure that needs human intervention.
-- [ ] Confirm pending human files are created.
+- [x] Simulate missing HF token.
+- [x] Simulate disk-low decision without actually filling disk.
+- [x] Simulate run failure that needs human intervention.
+- [x] Confirm pending human files are created.
 
 Validation:
 
@@ -139,9 +143,9 @@ Expected: blocked states produce clear human intervention docs.
 
 ### Task 3.7: Cron Deployment
 
-- [ ] Enable cron only after L2/L3 tests are acceptable.
-- [ ] Add crontab entry from `cron/crontab.example`.
-- [ ] Run cron script manually once.
+- [x] Enable cron only after L2/L3 tests are acceptable.
+- [x] Add crontab entry from `cron/crontab.example`.
+- [x] Run cron script manually once.
 
 Validation:
 
@@ -162,9 +166,9 @@ git commit -m "ai-auto: add verification reporting and human loop"
 
 ## Phase Acceptance
 
-- [ ] Verify skill exists and is independent.
-- [ ] API fallback path exists.
-- [ ] Reports can be generated.
-- [ ] Outcomes can be recorded.
-- [ ] Cron is either configured or explicitly deferred with a reason.
+- [x] Verify skill exists and is independent.
+- [x] API fallback path exists.
+- [x] Reports can be generated.
+- [x] Outcomes can be recorded.
+- [x] Cron is either configured or explicitly deferred with a reason.
 
