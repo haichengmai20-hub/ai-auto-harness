@@ -24,6 +24,7 @@ mkdir -p "$WORKSPACE/logs" "$WORKSPACE/results"
 LOG="$WORKSPACE/logs/run_and_repair.log"
 FIXES="$WORKSPACE/logs/fixes.log"
 echo "==== run-and-repair start at $(date -Iseconds) ====" >> "$LOG"
+echo "=== PHASE_START phase=run-and-repair slug=$SLUG run_id=$RUN_ID ts=$(date -Iseconds) ==="
 ```
 
 每次修复都同时:
@@ -273,6 +274,7 @@ cat > "$WORKSPACE/results/run.json" <<JSON
 }
 JSON
 echo "==== run-and-repair end at $(date -Iseconds) ====" >> "$LOG"
+echo "=== PHASE_END   phase=run-and-repair slug=$SLUG status=done ts=$(date -Iseconds) ==="
 ```
 
 ## 返回 schema

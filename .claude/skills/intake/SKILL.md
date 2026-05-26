@@ -29,6 +29,7 @@ mkdir -p "$WORKSPACE"/{.cache/huggingface,.cache/hf_hub,.cache/transformers,repo
 # 后续所有 bash 命令的输出 append 到这个日志
 LOG="$WORKSPACE/logs/intake.log"
 echo "==== intake start at $(date -Iseconds) ====" >> "$LOG"
+echo "=== PHASE_START phase=intake slug=$SLUG run_id=$RUN_ID ts=$(date -Iseconds) ==="
 ```
 
 写初始 state.json:
@@ -86,6 +87,34 @@ grep -rn "hf_hub_download\|snapshot_download" "$WORKSPACE/repo/" --include="*.py
 
 提取实际引用的 repo 名,与主 agent 传入的 `hf_repos` 比对.补全或修正.
 
+### 5.5 提取 weight_target_paths(必做 — fetch-weights 靠这个建 symlink)
+
+很多项目的 inference 代码 hardcode 了权重相对路径(`ckpt/`、`weights/<name>/`、`models/...`),与 HF repo 名不一致。fetch-weights 下完默认放在 `$WORKSPACE/.cache/hf_models/<repo>/`,跑 inference 时找不到 → 必须建 symlink。
+
+intake 阶段先把 mapping 找出来,fetch-weights 拿着 mapping 建 symlink。
+
+```bash
+# 找 inference / demo / app 脚本里 hardcode 的相对路径
+grep -rnE "ckpt/|weights/|models/|checkpoints/|pretrained/" \
+     "$WORKSPACE/repo/" --include="*.py" --include="*.sh" --include="*.md" --include="*.yaml" \
+     2>/dev/null | tee -a "$LOG" | head -40
+
+# 读 README quickstart 章节里给的目录结构(常是 tree 形式)
+grep -A 30 -iE "directory structure|folder structure|file layout|目录结构|weights? folder" \
+     "$WORKSPACE/repo/README.md" 2>/dev/null | tee -a "$LOG"
+```
+
+抽出来 mapping,写到 `intake.json.weight_target_paths`:
+
+```json
+"weight_target_paths": [
+  {"hf_repo": "lglg666/SongGeneration-Runtime", "target_rel": "ckpt"},
+  {"hf_repo": "lglg666/SongGeneration-v2-large", "target_rel": "songgeneration_base"}
+]
+```
+
+`target_rel` 是相对 `$WORKSPACE/repo/` 的路径。找不到就空数组 + 标 `warnings: ["weight_paths_unknown"]`,fetch-weights 会按默认放并 warn。
+
 ### 6. Preflight(调 preflight-gpu-disk skill)
 
 按 `.claude/skills/ai-auto/preflight-gpu-disk.md` 的 4 类检查:GPU / 磁盘 / Gated / Size。
@@ -113,13 +142,18 @@ cat > "$WORKSPACE/results/intake.json" <<JSON
 {
   "entry_script": "<推断出的>",
   "hf_deps": [...],
+  "weight_target_paths": [
+    {"hf_repo": "<org>/<repo>", "target_rel": "<相对 repo/ 的路径>"}
+  ],
   "gpu_picks": [...],
   "blocked": [...],
+  "warnings": [...],
   "ready_to_fetch": <true|false>,
   "completed_at": "$(date -Iseconds)"
 }
 JSON
 echo "==== intake end at $(date -Iseconds) ====" >> "$LOG"
+echo "=== PHASE_END   phase=intake slug=$SLUG status=done ts=$(date -Iseconds) ==="
 ```
 
 ## 返回 schema(同时 return 给主 agent)

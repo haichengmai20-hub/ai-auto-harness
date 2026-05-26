@@ -7,7 +7,33 @@ agent: install-agent
 
 # install-env
 
-## 🔴 硬规则(必须遵守,违反会污染 venv)
+## 🔴 硬规则(必须遵守)
+
+### 前置:fetch 必须完全 done 才能进 install(R5 串行带宽)
+
+启动 install 前,**必须** 校验 `$WORKSPACE/state.json`:
+
+```bash
+PHASE=$(jq -r .phase "$WORKSPACE/state.json")
+STATUS=$(jq -r .status "$WORKSPACE/state.json")
+PHASES_DONE=$(jq -r '.phases_done // [] | .[]' "$WORKSPACE/state.json")
+
+if ! echo "$PHASES_DONE" | grep -q "fetch-weights"; then
+    echo "ERROR: fetch-weights 未完成,不能进 install-env (R5: 带宽串行)" >> "$LOG"
+    exit 1
+fi
+```
+
+**禁止** 在 fetch-weights 还在 background 跑时启动 pip install(2GB CUDA wheels 与 28GB 权重抢同一根管道,两边都慢一倍)。
+
+### 禁止 `--no-cache-dir`
+
+`launch_worker.sh` 已 env-level 把 `PIP_CACHE_DIR=$LOG_DIR/.cache/pip` 隔离,**已经不污染系统 cache**。再加 `--no-cache-dir` 反而每次都重下 wheel,慢 + 浪费带宽 + 抢 fetch 带宽。
+
+```bash
+# ❌ pip install torch --no-cache-dir
+# ✅ pip install torch  # PIP_CACHE_DIR 已隔离,放心用 cache
+```
 
 ### 串行 pip(禁止并行)
 
@@ -56,6 +82,7 @@ print('archs:', torch.cuda.get_arch_list())
 mkdir -p "$WORKSPACE/logs" "$WORKSPACE/results"
 LOG="$WORKSPACE/logs/install_env.log"
 echo "==== install-env start at $(date -Iseconds) ====" >> "$LOG"
+echo "=== PHASE_START phase=install-env slug=$SLUG run_id=$RUN_ID ts=$(date -Iseconds) ==="
 
 # 所有 bash 命令都用这个模式: cmd 2>&1 | tee -a "$LOG"
 ```
@@ -98,6 +125,18 @@ pip install --upgrade pip setuptools wheel 2>&1 | tee -a "$LOG"
 ```
 
 ### 第 3 步:装项目依赖
+
+**pip 长任务必须后台 + 短 poll**(R4 防 sleep loop):
+
+```bash
+# 错:pip install -e . 2>&1 | tee -a "$LOG"  — 占住 foreground,LLM 只能 sleep 等
+# 对:后台跑,LLM 下个 turn tail 判活,绝不连续 sleep
+setsid nohup bash -c "pip install -e . 2>&1; echo PIP_EXIT=\$? >> '$LOG'" >> "$LOG" 2>&1 &
+PIP_PID=$!
+echo $PIP_PID > "$WORKSPACE/.cache/install_pip.pid"
+```
+
+后续 turn 用 `tail -50 $LOG` + `kill -0 $PIP_PID && echo alive` 判活,**禁止连续 sleep**(R4.2)。8 turn 没装完 → `paused_in_progress` return,主 agent 下次接续(R4.5)。
 
 优先级(**注意:每次只跑一个 pip 命令,foreground + tee,等完成再下一个**):
 
@@ -219,6 +258,7 @@ cat > "$WORKSPACE/results/install.json" <<JSON
 JSON
 
 echo "==== install-env end at $(date -Iseconds) ====" >> "$LOG"
+echo "=== PHASE_END   phase=install-env slug=$SLUG status=done ts=$(date -Iseconds) ==="
 ```
 
 ## 返回 schema

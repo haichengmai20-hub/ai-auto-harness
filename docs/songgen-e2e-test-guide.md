@@ -95,7 +95,11 @@ setsid nohup bash /root/ai-auto-harness/cron/launch_worker.sh \
 - results/verify.json passed=true
 - workspace/song-generation/repo/ 下有实际音频输出(*.flac / *.mp3)
 - reports/$(date +%Y-%m-%d).md 已生成' \
-  "$LOG_DIR" </dev/null >>"$LOG_DIR/wrapper.out" 2>>"$LOG_DIR/wrapper.err" &
+  "$LOG_DIR" \
+  song-generation \
+  </dev/null >>"$LOG_DIR/wrapper.out" 2>>"$LOG_DIR/wrapper.err" &
+# ^ 第 3 参数 slug=song-generation 启用 PostToolUse hook 做 R1 workspace 隔离检测
+#   (任何动 workspace/<other>/ 的命令都会被 hook 注入 warning)
 
 WORKER_PID=$!
 echo "$WORKER_PID" > "$LOG_DIR/worker.pid"
@@ -227,7 +231,9 @@ setsid nohup bash /root/ai-auto-harness/cron/launch_worker.sh \
 【前置信息】(同前置,这里省略,但 worker 应该从 state.json 读到)
 
 【完成标志】state.json phase=done + verify.json passed=true' \
-  "$NEW_LOG_DIR" </dev/null >>"$NEW_LOG_DIR/wrapper.out" 2>>"$NEW_LOG_DIR/wrapper.err" &
+  "$NEW_LOG_DIR" \
+  song-generation \
+  </dev/null >>"$NEW_LOG_DIR/wrapper.out" 2>>"$NEW_LOG_DIR/wrapper.err" &
 ```
 
 worker 看到 state.phase=fetching → 调 fetch-weights skill → skill 内读 state.fetch_state → resume 已下载部分.

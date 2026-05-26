@@ -1,16 +1,14 @@
 #!/bin/bash
 # AI Auto Harness — 每日 cron 入口(10:30 触发)
 #
-# 启动姿势(对齐 ai-intel-deploy baseline,经 smoke test 验证):
-#   IS_SANDBOX=1                       让 --dangerously-skip-permissions 在 root 下可用
-#   --dangerously-skip-permissions     跳过权限提示(workspace 内全权)
-#   --output-format stream-json        输出 ndjson 事件流(供 trajectory 解析)
-#   --verbose                          每个 tool_use / message 都是独立行
-#   CLAUDE_HAHA_BIN(env)               允许外部覆盖 binary 路径
+# 启动姿势完全对齐 launch_worker.sh:
+#   IS_SANDBOX=1 + --dangerously-skip-permissions + --output-format stream-json
+#   + --append-system-prompt(R1-R9 浓缩版)
+#   + PostToolUse hook 做 R1/R4 硬约束检测
+#   + worker.pid + trap cleanup 防僵尸进程
 #
-# 历史:之前用 --bare 跳过 OAuth/keychain,但发现 --bare 会跳过 hooks/skills,
-#       导致 /auto-daily slash command 无法识别 → 静默退出.
-#       baseline 姿势完整保留 hooks/skills,只用 IS_SANDBOX 绕过 root 检测.
+# 不复用 launch_worker.sh 是因为 daily.sh 自己组装 prompt(auto-daily skill 触发),
+# 而 launch_worker.sh 是通用入口。两者维护时保持同步。
 set -e
 
 HARNESS_ROOT="${AI_AUTO_HARNESS_ROOT:-/root/ai-auto-harness}"
@@ -18,16 +16,38 @@ CLAUDE_HAHA_BIN="${CLAUDE_HAHA_BIN:-$HARNESS_ROOT/bin/claude-haha}"
 CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-/root/.claude}"
 
 cd "$HARNESS_ROOT"
-
-# 加载 .env(API key + BASE_URL + 可选 HF_TOKEN)
 [ -f .env ] && set -a && source .env && set +a
 
-# 每次 cron 跑生成独立 run-id 目录
 LOG_DIR="$HARNESS_ROOT/runs/cron-$(date +%Y-%m-%d-%H%M%S)"
 mkdir -p "$LOG_DIR"
 
-# ============ 缓存隔离(硬阻塞 #1 修复)============
-# 在 env 层强制设默认 cache 位置,避免 LLM 漏掉 export 时复用系统 ~/.cache/ 作弊.
+# ============ run-id 注册 + hook_state 初始化 ============
+RUN_ID=$(basename "$LOG_DIR")
+echo "$RUN_ID" > "$HARNESS_ROOT/runs/.current_run_id"
+# daily.sh 不知道 slug(由 auto-daily skill pick),hook_state.own_slug 留空;
+# 跨 workspace 检测在 SubAgent dispatch 后由 SubAgent 自己更新 hook_state
+python3 - "$LOG_DIR/.hook_state.json" <<'PYEOF'
+import json, sys, time
+state_path = sys.argv[1]
+with open(state_path, "w") as f:
+    json.dump({
+        "own_slug": "",
+        "own_pids": [],
+        "bash_count": 0,
+        "poll_count": 0,
+        "task_called": 0,
+        "sleep_streak": 0,
+        "last_cmd": "",
+        "trigger": "cron",
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+    }, f)
+PYEOF
+
+cat > "$LOG_DIR/meta.json" <<JSON
+{"started_at":"$(date -Iseconds)","run_id":"$RUN_ID","trigger":"cron"}
+JSON
+
+# ============ 缓存隔离 ============
 ISOLATED_CACHE="$LOG_DIR/.cache"
 mkdir -p "$ISOLATED_CACHE"/{huggingface,torch,pip,xdg}
 export HF_HOME="$ISOLATED_CACHE/huggingface"
@@ -36,10 +56,75 @@ export TRANSFORMERS_CACHE="$ISOLATED_CACHE/huggingface"
 export TORCH_HOME="$ISOLATED_CACHE/torch"
 export PIP_CACHE_DIR="$ISOLATED_CACHE/pip"
 export XDG_CACHE_HOME="$ISOLATED_CACHE/xdg"
+if [ -n "${HF_TOKEN:-}" ]; then
+    export HF_TOKEN
+fi
 
-# 触发主 agent 工作流 — 用自然语言 prompt 触发 auto-daily skill
+# ============ 启动前清理僵尸 worker ============
+python3 - <<'PYEOF' 2>>"$LOG_DIR/cleanup.log" || true
+import os, pathlib, signal, time
+runs = pathlib.Path("/root/ai-auto-harness/runs")
+cleaned = []
+for wpid_file in runs.glob("*/worker.pid"):
+    try:
+        pid = int(wpid_file.read_text().strip())
+    except Exception:
+        continue
+    if pid == os.getpid():
+        continue
+    try:
+        os.kill(pid, 0)
+        continue
+    except OSError:
+        pass
+    cache_dir = wpid_file.parent / ".cache"
+    if cache_dir.exists():
+        for pf in cache_dir.glob("*.pid"):
+            try:
+                cpid = int(pf.read_text().strip())
+                os.kill(cpid, 0)
+                os.kill(cpid, signal.SIGTERM)
+                cleaned.append(f"{wpid_file.parent.name}: SIGTERM {cpid}")
+            except Exception:
+                pass
+if cleaned:
+    with open("/root/ai-auto-harness/runs/.last_cleanup.log", "a") as f:
+        f.write(f"=== {time.strftime('%Y-%m-%dT%H:%M:%S')} daily.sh ===\n")
+        for c in cleaned: f.write(c + "\n")
+PYEOF
+
+# ============ trap cleanup ============
+WORKER_PID_FILE="$LOG_DIR/worker.pid"
+echo "$$" > "$WORKER_PID_FILE"
+
+cleanup() {
+    local code=$?
+    if [ -n "${HAHA_PID:-}" ]; then
+        kill -TERM "$HAHA_PID" 2>/dev/null || true
+    fi
+    echo "exit=$code" > "$LOG_DIR/cron.status"
+    exit $code
+}
+trap cleanup EXIT INT TERM
+
+# ============ Prompt ============
 PROMPT="请使用 auto-daily skill 执行今日 AI 项目部署工作流(读 ai-daily-scan findings → 挑 1 个 → 5 阶段 SubAgent → 写报告)."
 
+APPEND_PROMPT=$(cat <<'PROMPT_EOF'
+
+# 🔴 Harness 硬规则(违反会被 PostToolUse hook 实时 warn)
+
+**R1**:只能动自己 workspace;严禁 kill 不在 $WORKSPACE/.cache/*.pid 里的 PID
+**R4**:单次 sleep ≤ 60s;连续 sleep 绝对禁;poll ≤ 8 turn,超过 paused_in_progress return
+**R5**:fetch 完全 done 才进 install,不并行抢带宽
+**R6**:pip 严禁 --no-cache-dir(PIP_CACHE_DIR 已 env 隔离)
+**R9**:主 agent 只 Task() dispatch,**严禁**自己 git clone / hf download / pip install / python -m
+
+完整规则在 .claude/CLAUDE.md R1-R9。
+PROMPT_EOF
+)
+
+# ============ 启动 worker ============
 CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
 IS_SANDBOX=1 \
 HF_HOME="$HF_HOME" \
@@ -48,26 +133,32 @@ TRANSFORMERS_CACHE="$TRANSFORMERS_CACHE" \
 TORCH_HOME="$TORCH_HOME" \
 PIP_CACHE_DIR="$PIP_CACHE_DIR" \
 XDG_CACHE_HOME="$XDG_CACHE_HOME" \
+HF_TOKEN="${HF_TOKEN:-}" \
 "$CLAUDE_HAHA_BIN" \
     -p "$PROMPT" \
+    --append-system-prompt "$APPEND_PROMPT" \
     --output-format stream-json \
     --verbose \
     --dangerously-skip-permissions \
     --settings "$HARNESS_ROOT/.claude/settings.json" \
     > "$LOG_DIR/harness.stdout.ndjson" \
-    2> "$LOG_DIR/harness.stderr.log"
-RET=$?
+    2> "$LOG_DIR/harness.stderr.log" &
+HAHA_PID=$!
+echo "$HAHA_PID" > "$LOG_DIR/haha.pid"
 
-# 落 trajectory 摘要(从 ndjson 抽 assistant + tool_use 行)
+wait "$HAHA_PID"
+RET=$?
+HAHA_PID=""
+
+# trajectory.json
 python3 -c "
 import json, pathlib
 ndjson_path = pathlib.Path('$LOG_DIR/harness.stdout.ndjson')
 out_path = pathlib.Path('$LOG_DIR/trajectory.json')
 events = []
-for line in ndjson_path.read_text().splitlines():
+for line in ndjson_path.read_text().splitlines() if ndjson_path.exists() else []:
     if not line.strip(): continue
-    try:
-        d = json.loads(line)
+    try: d = json.loads(line)
     except: continue
     if d.get('type') in ('assistant', 'user', 'result'):
         events.append({'type': d.get('type'), 'subtype': d.get('subtype'),
@@ -76,5 +167,4 @@ out_path.write_text(json.dumps(events, ensure_ascii=False, indent=2))
 print(f'trajectory.json: {len(events)} events')
 " 2>>"$LOG_DIR/harness.stderr.log" || true
 
-echo "exit=$RET" > "$LOG_DIR/cron.status"
 exit $RET

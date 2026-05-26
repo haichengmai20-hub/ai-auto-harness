@@ -16,6 +16,7 @@ agent: verify-agent
 mkdir -p "$WORKSPACE/logs" "$WORKSPACE/results"
 LOG="$WORKSPACE/logs/verify.log"
 echo "==== verify start at $(date -Iseconds) ====" >> "$LOG"
+echo "=== PHASE_START phase=verify slug=$SLUG run_id=$RUN_ID ts=$(date -Iseconds) ==="
 ```
 
 注:你**只 Read + Bash**(无 Edit/Write),所以"写日志"也只能通过 `tee -a "$LOG"` 这样的 bash 命令(`bash -c 'cmd 2>&1' | tee -a "$LOG"` 或 `cmd 2>&1 >> "$LOG"`).
@@ -182,6 +183,7 @@ GPU 利用低(< 1GB used 或全程 0% 利用)→ `passed=false, failed_at="gpu_u
 3. **结束日志**:
    ```bash
    echo "==== verify end at $(date -Iseconds) ====" >> "$LOG"
+   echo "=== PHASE_END   phase=verify slug=$SLUG status=done ts=$(date -Iseconds) ==="
    ```
 
 主 agent 会另外把 return JSON 也写到 `runs/$RUN_ID/verify.json`(本次 cron 快照).

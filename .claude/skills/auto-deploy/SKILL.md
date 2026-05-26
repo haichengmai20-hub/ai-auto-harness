@@ -10,6 +10,24 @@ allowed-tools: [Read, Write, Bash, Task, mcp__ai_daily_scan__*]
 
 参数会在 `$ARGUMENTS` 里(单个 github URL,可能含尾部 query string)。
 
+## 🔴 主 agent 的角色定位(违反 = 架构退化成单 agent 烂泥)
+
+你(主 agent / orchestrator)**只做** 4 件事:
+
+1. **路由决策**:30B / gated / 复用 workspace 三分支
+2. **状态机推进**:读 `state.json`,选下一个 phase
+3. **`Task()` dispatch SubAgent**:`intake-agent` / `fetch-agent` / `install-agent` / `runner-agent` / `verify-agent`
+4. **结果聚合 + 写报告**
+
+**你不做**(违反就是单 agent 烂泥):
+- ❌ 自己 `Bash(git clone ...)` — 那是 intake-agent 的事
+- ❌ 自己 `Bash(hf download ...)` 或 `python -c "snapshot_download(...)"` — 那是 fetch-agent
+- ❌ 自己 `Bash(pip install ...)` — 那是 install-agent
+- ❌ 自己 `Bash(python -m flux ...)` 跑 entry_script — 那是 runner-agent
+- ❌ 在一个 phase 里"顺手"做下一 phase 的事(比如 fetch 里启 pip)— SubAgent 隔离边界要硬
+
+**为什么强制**:run2 试跑暴露的核心问题就是主 agent 全程不调 Task(),48 次 Bash 把 5 个 phase 揉成一团,在同一 context 里做"先装还是先下"的拍脑袋决策,结果 kill 掉自己的下载、又抢别 run 的带宽、最后空转 1h。**SubAgent 隔离强制串行 + context 单一职责 = 不会做这种烂决策**。
+
 ## 工作流
 
 ### 任务 0:初始化(同 auto-daily Task 0)
@@ -86,16 +104,62 @@ state = {
 }
 Write WORKSPACE/state.json with state
 
-# 走 daily-auto skill 里的 phase dispatch 逻辑
-按 state.phase 顺序 dispatch:
-    null → intake
-    fetching → fetch-weights
-    installing → install-env
-    running → run-and-repair
-    verifying → verify
+# 走 phase dispatch 逻辑 — 必须用 Task() 工具,严禁主 agent 自己 bash
+# 每个 phase 一次 Task() 调用,prompt 里只传该 phase 必需的输入
 
-任一 blocked / paused_for_human / paused_in_progress → 跳到任务 5
+# Phase 1: intake
+Task(
+    subagent_type="intake-agent",
+    description="intake <slug>",
+    prompt=f"""
+slug: {SLUG}
+github_url: {ARGUMENTS}
+workspace_path: workspace/{SLUG}
+run_id: {RUN_ID}
+hf_repos: {finding['hf_repos']}
+gated_repos: {finding['gated_repos']}
+estimated_weight_size_gb: {finding['estimated_weight_size_gb']}
+
+按 intake skill 跑完,return intake.json schema。
+"""
+)
+# → 读 workspace/<slug>/results/intake.json,确认 status,更新 state.json phases_done
+
+# Phase 2: fetch-weights (必须等 intake done)
+if intake_result.status == "done":
+    Task(
+        subagent_type="fetch-agent",
+        description=f"fetch weights for {SLUG}",
+        prompt=f"""
+slug: {SLUG}
+hf_repos: {finding['hf_repos']}
+workspace_path: workspace/{SLUG}
+run_id: {RUN_ID}
+
+按 fetch-weights skill 跑完(用 hf download + HF_TOKEN + HF_HUB_ENABLE_HF_TRANSFER=1)。
+绝不启动 pip install 或动其他 workspace。
+"""
+    )
+
+# Phase 3: install-env (必须等 fetch-weights done)
+if fetch_result.status == "done":
+    Task(subagent_type="install-agent", ...)
+
+# Phase 4: run-and-repair
+if install_result.deps_ok:
+    Task(subagent_type="runner-agent", ...)
+
+# Phase 5: verify (独立判定,不读 run 的修复历史)
+if run_result.status == "done":
+    Task(subagent_type="verify-agent", ...)
+
+# 任一 blocked / paused_for_human / paused_in_progress → 跳到任务 5,写报告
 ```
+
+**关键规则**:每个 Task() 返回后,主 agent 必须:
+1. 读 `workspace/<slug>/results/<phase>.json` 确认 SubAgent 落盘
+2. 更新 `workspace/<slug>/state.json`:`phases_done += ["<phase>"]`, `phase = "<next>"`,`updated_at = now()`
+3. 若 SubAgent 返回 blocked / paused → 不 dispatch 下一个,直接跳到任务 5
 
 ### 任务 5:写报告 + 回填
 
@@ -154,3 +218,6 @@ fi
 - ❌ 不要无脑 rm -rf workspace/<slug>/ 重跑(可能丢已下完的权重)
 - ❌ 不要直接走 5 阶段而不先调 analyze_project(没拿到 size_gb 不知道 30B 阈值)
 - ❌ 不要在 analyze_project 报错时强行猜测 hf_repos(那种情况应该 raise 让用户给 URL 或手动 finding)
+- ❌ **不要主 agent 自己 `Bash(git clone / hf download / pip install / python ...)`** — 用 `Task()` dispatch SubAgent。主 agent 的 Bash 仅限读 state.json / 写 meta.json / 调度类操作
+- ❌ **不要在同一个 Task() 让 SubAgent 跨 phase 干活**(比如让 fetch-agent "顺手装个 pip")— phase 边界要硬
+- ❌ **不要并行 dispatch 多个 SubAgent**(N=1,串行)— 带宽 / GPU 都是单一资源
