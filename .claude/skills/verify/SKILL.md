@@ -161,35 +161,72 @@ GPU 利用低(< 1GB used 或全程 0% 利用)→ `passed=false, failed_at="gpu_u
 
 ## 强制要求(返回前)
 
-1. **写 results/verify.json**(用 bash heredoc,因为你无 Write 工具):
+1. **写 results/verify.json — 必须含下列 6 个根字段,严禁自创 schema**:
+
+   下游(cleanup G4 / auto-status / write-recommendation)用 `jq -r '.passed'` 读判定。**字段缺失 = 下游误判**。L1 实测 hunyuan3d-2 / omnivoice 都因为 LLM 自由写 schema(用 `status`+`checks` 或 `status`+`verdict`)导致 `passed` 字段缺失,被 cleanup G4 误判 verify_not_passed。
+
+   **必须**用下面这个**精确**的 bash heredoc 写,不许改字段名:
+
    ```bash
+   PASSED_VAL=true                  # 真实判定:true 或 false (字符串,无引号)
+   FAILED_AT_VAL=null               # 真实:null 或 "startup"|"smoke_test"|"gpu_utilization" (带引号)
+   CONFIDENCE_VAL='"high"'          # "high" | "medium" | "low"
+   NOTES_VAL='"<判定说明,单行>"'    # 一句话
+
    bash -c "cat > '$WORKSPACE/results/verify.json' <<JSON
    {
-     \"passed\": <true|false>,
-     \"failed_at\": <null | step name>,
-     \"evidence\": { ... },
-     \"notes\": \"<判定说明>\",
-     \"confidence\": \"<high|medium|low>\",
+     \"passed\": $PASSED_VAL,
+     \"failed_at\": $FAILED_AT_VAL,
+     \"evidence\": {
+       \"startup_exit_code\": <int>,
+       \"smoke_stdout_snippet\": \"<last 500 chars>\",
+       \"smoke_exit_code\": <int>,
+       \"gpu_stats\": {\"memory_used_mb\": <int>, \"utilization_pct\": <int>},
+       \"output_files\": [<paths>]
+     },
+     \"notes\": $NOTES_VAL,
+     \"confidence\": $CONFIDENCE_VAL,
      \"completed_at\": \"$(date -Iseconds)\"
    }
    JSON"
    ```
 
-2. **append 一条到 `runs/$RUN_ID/decisions.md`**(同样用 bash echo / cat):
+2. **写完立即自检 schema** — `jq -e` 验证 6 个根字段都在,任一缺失即 raise + 重写:
+
+   ```bash
+   for f in passed failed_at evidence notes confidence completed_at; do
+       jq -e --arg k "$f" 'has($k)' "$WORKSPACE/results/verify.json" >/dev/null \
+           || { echo "FATAL verify.json 缺字段: $f" >&2; exit 1; }
+   done
+   jq -e '.passed | type == "boolean"' "$WORKSPACE/results/verify.json" >/dev/null \
+       || { echo "FATAL verify.json .passed 必须是 boolean(true/false),不能是 null/string" >&2; exit 1; }
+   ```
+
+3. **append 一条到 `runs/$RUN_ID/decisions.md`**(同样用 bash echo / cat):
    ```bash
    echo "- $(date -Iseconds) by verify-agent: startup ✓ / smoke ✓ / gpu_util ✓ → PASS" >> "runs/$RUN_ID/decisions.md"
    ```
 
-3. **结束日志**:
+4. **结束日志**:
    ```bash
    echo "==== verify end at $(date -Iseconds) ====" >> "$LOG"
-   echo "=== PHASE_END   phase=verify slug=$SLUG status=done ts=$(date -Iseconds) ==="
+   echo "=== PHASE_END   phase=verify slug=$SLUG status=done ts=$(date -Iseconds) ===" | tee -a "$LOG"
    ```
 
 主 agent 会另外把 return JSON 也写到 `runs/$RUN_ID/verify.json`(本次 cron 快照).
 
+## 🔴 反模式(L1 实测出现过的真实问题,**严禁重演**)
+
+- ❌ **自创 verify.json schema** — `{status, checks, ...}` 或 `{status, verdict, ...}` 都不行(L1 实测 hunyuan3d-2 + omnivoice 撞过)。**必须** 6 字段 `passed/failed_at/evidence/notes/confidence/completed_at`。下游 cleanup G4 `jq -r '.passed'` 拿到 null → 误判 verify 没过
+- ❌ **passed 字段写字符串** — `"passed": "true"` 不行,必须 boolean `true`/`false`。第 2 步 jq -e 会拦
+- ❌ **缺 failed_at** — passed=true 时填 `null`(JSON null,不是字符串 "null");passed=false 时填具体 step name 字符串
+- ❌ **smoke fail 了改 config 重跑** — 你没 Edit 工具,runner 的事。verify 只判定不修
+- ❌ **GPU 利用率 0% 但 smoke 出文件 → 算 pass** — 不行,GPU 0% = 没真用模型,严格 fail
+- ❌ **读 run_result 之前怎么修的** — 破坏独立判定原则
+
 ## 我做错了什么?常见诱惑
 
+- ❌ "我用更详细的 schema(加 verdict、original_output_ok 之类)能更清楚表达" — **不**.下游靠固定字段名 grep,自创字段 = 对下游隐形.信息丰富 = 写到 `evidence` 子对象,不是顶层新字段
+- ❌ "passed 真假我不确定,我写 null 让人决定" — **不**.verify 的存在就是给布尔判定.不确定 = 走 `passed:false, failed_at:"gpu_utilization"` 或类似,**永远不写 null**
 - ❌ "smoke fail 了,可能是 batch_size 太大,我改下 config 重跑" — **不**.你没 Edit 工具.runner 的事
-- ❌ "GPU 利用率 0%,但 smoke 出文件了,算 pass 吧" — **不**.GPU 0% = 没真用模型,严格 fail
 - ❌ "看下 runner 之前是怎么修的" — **不**.读 run_result 破坏独立判定原则
