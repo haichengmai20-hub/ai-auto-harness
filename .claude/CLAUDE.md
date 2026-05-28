@@ -191,3 +191,40 @@ echo "=== PHASE_END   phase=<phase> slug=<slug> status=<done|paused|blocked> ts=
 - 不要 max_turns > 3 在 run-and-repair 阶段(写 pending_human 比硬试好)
 - 不要污染全局 HF cache — `launch_worker.sh` 已 env-level 强制 `HF_HOME=$LOG_DIR/.cache/huggingface`,你**不需要**改它,但每次 bash 重新 export 一遍是好习惯
 - 不要在 verify 阶段修问题 — 只判定
+
+---
+
+## ChangeLog
+
+> 本节回填 R1-R9 的引入来源。每条 R 规则都对应一个 fix.md(架构改善事实链)。规则见 [docs/superpowers/specs/2026-05-27-spec-plan-governance.md](../docs/superpowers/specs/2026-05-27-spec-plan-governance.md) §3.3。
+
+- **2026-05-27** — 立 ChangeLog 章节
+  - 变更类型: 结构
+  - 影响范围: 本文件
+  - 动机: 引入 fix 体系,R 规则需可追溯
+  - 证据: [docs/superpowers/specs/2026-05-27-spec-plan-governance.md](../docs/superpowers/specs/2026-05-27-spec-plan-governance.md)
+
+- **2026-05-26** — R1-R9 整合到本文件 + PostToolUse hook 实时检测
+  - 变更类型: 规则集成
+  - 影响范围: 本文件全部 R 规则 + `.claude/hooks/post-tool-use.sh` + `cron/{launch_worker,daily}.sh`
+  - 动机: SongGen run2/run3 暴露 LLM 自觉度极低,SKILL prompt 里 R 规则被忽视
+  - 证据: [docs/superpowers/fixes/2026-05-26-v1.1-hardening-fix.md](../docs/superpowers/fixes/2026-05-26-v1.1-hardening-fix.md)
+  - 验证: ✅ 3 项目跑通(SongGen / OmniVoice / Hunyuan3D-2)
+
+- **2026-05-21** — R4 sleep loop 禁止(5 个子规则)
+  - 变更类型: 约束
+  - 影响范围: R4 + PostToolUse hook R4 检测
+  - 动机: SongGen run2 实测 sleep 占 97% wall-clock,turn 预算爆炸
+  - 证据: [docs/superpowers/fixes/2026-05-21-sleep-loop-discipline-fix.md](../docs/superpowers/fixes/2026-05-21-sleep-loop-discipline-fix.md)
+
+- **2026-05-21** — R1 workspace 隔离 + R9 主 agent 不亲自 bash
+  - 变更类型: 约束
+  - 影响范围: R1 + R9 + verify 独立判定
+  - 动机: SongGen run2 暴露主 agent 越权 + 跨 run kill 别人 PID
+  - 证据: [docs/superpowers/fixes/2026-05-21-agent-isolation-fix.md](../docs/superpowers/fixes/2026-05-21-agent-isolation-fix.md)
+
+- **2026-05-21** — R5 串行带宽 + R6 pip 反模式 + R7 `hf` 不 `huggingface-cli`
+  - 变更类型: 规则
+  - 影响范围: R5 / R6 / R7 + `cron/launch_worker.sh` HF_HOME 隔离
+  - 动机: SongGen baseline 对比 3 个阻塞点
+  - 证据: [docs/superpowers/fixes/2026-05-21-baseline-3-blockers-fix.md](../docs/superpowers/fixes/2026-05-21-baseline-3-blockers-fix.md)

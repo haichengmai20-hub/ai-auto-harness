@@ -1412,3 +1412,37 @@ type Outcome = {
 ---
 
 **End of design doc.**
+
+---
+
+## ChangeLog
+
+> 本节回填 v1.0 立项后所有影响本 spec 的架构改善。每条引 fix.md 证据。规则见 [spec-plan-governance §3](2026-05-27-spec-plan-governance.md#3-正文--changelog-二分原则)。
+
+- **2026-05-27** — 立 ChangeLog 章节,回填 v1.0 后所有架构改善
+  - 变更类型: 结构
+  - 影响范围: 本 spec 全部正文
+  - 动机: 引入 fix 体系后,spec 变更需可追溯到 fix 证据
+  - 证据: [fixes/2026-05-19-cron-driven-architecture-fix.md](../fixes/2026-05-19-cron-driven-architecture-fix.md)(架构立项 fix)
+  - 验证: 待验证(下次 spec 变更走完整流程时回填)
+
+- **2026-05-25** — 引入 Phase 5 增量(runbook + cleanup)
+  - 变更类型: 流程扩展
+  - 影响范围: 不动 v1.0 正文,通过 addendum 增量
+  - 动机: 部署后需"沉淀 runbook + 清理 workspace"两步,完善生命周期
+  - 证据: [specs/2026-05-25-runbook-and-cleanup-addendum.md](2026-05-25-runbook-and-cleanup-addendum.md)
+  - 验证: ✅ L1 测试通过
+
+- **2026-05-21** — Baseline 对比 3 个阻塞点闭环(cache 隔离 / 禁并行 pip / GPU preflight)
+  - 变更类型: 规则
+  - 影响范围: 主 agent 与 SubAgent 串行/并行约定 + preflight 必调用
+  - 动机: SongGen baseline 试跑暴露的根本阻塞
+  - 证据: [fixes/2026-05-21-baseline-3-blockers-fix.md](../fixes/2026-05-21-baseline-3-blockers-fix.md)
+  - 验证: ✅ 3 项目跑通(SongGen / OmniVoice / Hunyuan3D-2)
+
+- **2026-05-21** — SubAgent 隔离原则(R1 + R9 + verify 独立判定)
+  - 变更类型: 约束
+  - 影响范围: 全部 SubAgent 边界
+  - 动机: SongGen run2 暴露主 agent 越权 + 跨 run 干扰
+  - 证据: [fixes/2026-05-21-agent-isolation-fix.md](../fixes/2026-05-21-agent-isolation-fix.md)
+  - 验证: ✅ PostToolUse hook 实时检测生效

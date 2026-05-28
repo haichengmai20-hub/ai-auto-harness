@@ -16,30 +16,85 @@
 
 ## 📍 当前状态（活索引 — 每次工作后更新此节）
 
-- **最后更新**：2026-05-27
+- **最后更新**：2026-05-27（verify.json schema 强化）
 - **版本**：v1.1（Phase 5 进行中）
-- **一句话**：Phase −1~4 平台全部 ✅；Phase 5（runbook+cleanup）实现 + L1 测试 ✅，主流程串联（Task 5-13）⬜ pending
+- **一句话**：Phase −1~4 平台全部 ✅;Phase 5(runbook+cleanup)实现 + L1 测试 ✅;verify SKILL schema 强化 + validate-verify.sh ✅;主流程串联(Task 5-13)⬜ pending
 - **真实战绩**：3 个项目跑通（SongGeneration / OmniVoice / Hunyuan3D-2）
 - **git**：本地 main 领先 upstream 19 commits，**未 push**
 - **工作树**：干净（仅 `2026-05-26-roledrop-judge-pilot.md` 故意留 untracked，属外来工作线，不入本库）
-- **下一步候选**：① push 到 Gitea ② cleanup runs/.cache 决策(见待办) ③ Phase 5 Task 5-13 串联 ④ 修 verify.json passed=null
+- **下一步候选**：① 修 verify.json `passed=null`(Task 5-7 前置) ② Phase 5 Task 5-7 主流程串联(Phase 5 主 work) ③ push 到 Gitea(19 commits 未推) ④ Task 8 小项目 e2e
 
 ---
 
-## 🗂️ 记录规则（本项目如何记录进度 / 问题 / 方案 — 不新建文件，用好现成 4 个面）
+## 🌐 全局索引（spec / plan / fix 三栏 — 接手 AI 从这里入手）
 
-| 要记什么 | 用哪个现成文件 | 纪律 |
+### 当前生效 Spec
+
+| 文件 | 一句话 | 状态 |
 |---|---|---|
-| **进度**（做到哪了） | `git log` + 本文件「当前状态」节 + 下方 Phase Milestones 表 | 每个工作 session 结束必 commit（`ai-auto: <做了什么>`）；phase 状态变化时更新本文件 |
-| **问题 + 修改方案** | `../retros/<date>-<topic>-retro.md` | 每轮测试/排查写一份 retro，用「问题 → 修复实施记录（回填 commit hash）」闭环格式 |
-| **未解决 / 阻塞 / 待决策** | `../../../pending_human/<slug>.md` | 遇到卡点或需人决策即写（如 cleanup runs/.cache 的 A/B/C/D） |
-| **跨项目踩坑** | `../../../memory/lessons/*.md` | 通用技术经验沉淀（torch-sm12 / hf-gated / flash-attn-build） |
-| **设计** | `../specs/*.md` | 大改动先写 spec（或 addendum 引用原 spec） |
+| [specs/2026-05-19-ai-auto-harness-design.md](../specs/2026-05-19-ai-auto-harness-design.md) | v1.0 主设计 — 5 阶段流水线 + SubAgent 隔离 + 跨 cron 接续 | 生效 |
+| [specs/2026-05-25-runbook-and-cleanup-addendum.md](../specs/2026-05-25-runbook-and-cleanup-addendum.md) | Phase 5 增量 — runbook + cleanup,引原 spec 不动正文 | 生效 |
+| [specs/2026-05-27-spec-plan-governance.md](../specs/2026-05-27-spec-plan-governance.md) | spec/plan 管控规则 + ChangeLog 触发条件 | 生效 |
+| [specs/2026-05-27-fix-records-governance.md](../specs/2026-05-27-fix-records-governance.md) | fix 记录规则 + 模板 + 闭环流程 | 生效 |
 
-**每-session 仪式（3 步，防止记录滞后于现实）**：
-1. 结束前 `git commit`（哪怕 WIP）—— git log 是零成本的权威进度记录
-2. 若 phase 状态变了 → 更新本文件「当前状态」+ Milestones 表
-3. 若发现新问题/卡点 → 追加 retro 或写 pending_human
+### 当前生效 Plan
+
+| 文件 | 一句话 | 状态 |
+|---|---|---|
+| **本文件**(Master Plan) | 活索引 — 每 session 更新 | 生效 |
+| [plans/2026-05-19-phase--1-preflight-risk.md](2026-05-19-phase--1-preflight-risk.md) | Phase -1 风险预审 | ✅ 完成 |
+| [plans/2026-05-19-phase-0-ai-daily-scan-mcp.md](2026-05-19-phase-0-ai-daily-scan-mcp.md) | Phase 0 ai-daily-scan MCP 集成 | ✅ 完成 |
+| [plans/2026-05-19-phase-1-harness-skeleton-intake.md](2026-05-19-phase-1-harness-skeleton-intake.md) | Phase 1 骨架 + intake | ✅ 完成 |
+| [plans/2026-05-19-phase-2-fetch-install-run.md](2026-05-19-phase-2-fetch-install-run.md) | Phase 2 fetch/install/run | ✅ 完成 |
+| [plans/2026-05-19-phase-3-verify-report-human.md](2026-05-19-phase-3-verify-report-human.md) | Phase 3 verify + report + 人介入 | ✅ 完成 |
+| [plans/2026-05-19-phase-4-docs-migration.md](2026-05-19-phase-4-docs-migration.md) | Phase 4 文档 + lessons | ✅ 完成 |
+| [plans/2026-05-25-phase-5-runbook-and-cleanup.md](2026-05-25-phase-5-runbook-and-cleanup.md) | Phase 5 runbook + cleanup | 🟡 实现+L1 ✅,Task 5-13 串联 ⬜ |
+| [plans/2026-05-25-phase-5-task-3-and-4-l1-test-prompt.md](2026-05-25-phase-5-task-3-and-4-l1-test-prompt.md) | Phase 5 Task 3+4 L1 测试 prompt | ✅ 跑过 |
+| [plans/2026-05-26-phase-5-p4-5-cleanup-g-guards-failure-tests.md](2026-05-26-phase-5-p4-5-cleanup-g-guards-failure-tests.md) | Phase 5 G1-G4 防护故意失败测试 prompt | ✅ 跑过(5/5 PASS) |
+
+### Fix 索引(架构改善事实链)
+
+> 完整 fix 目录见 [fixes/README.md](../fixes/README.md)。每条 fix 含部署项目 + run_id 来源,可精确追溯。
+
+| 日期 | Fix | 部署项目 | 影响 | commit | 状态 |
+|---|---|---|---|---|---|
+| 2026-05-27 | [verify-schema-enforcement-fix](../fixes/2026-05-27-verify-schema-enforcement-fix.md) | hunyuan3d-2 + omnivoice + song-generation-run2 | `verify/SKILL.md` + `scripts/validate-verify.sh` | (本 session) | ✅ 已闭环 |
+| 2026-05-26 | [phase5-l1-retro-15-fixes](../fixes/2026-05-26-phase5-l1-retro-15-fixes.md) | song-generation-run2 (L1 test) | runbook+cleanup 两 SKILL + 2 validate 脚本 | `42bdc5c` | ✅ 已闭环(14/15) |
+| 2026-05-26 | [runs-cache-cleanup-decision-fix](../fixes/2026-05-26-runs-cache-cleanup-decision-fix.md) | song-generation(run2)+ song-generation | `cleanup/SKILL.md` 第 2.5 步 | `42bdc5c` | ✅ 已闭环 |
+| 2026-05-26 | [v1.1-hardening-fix](../fixes/2026-05-26-v1.1-hardening-fix.md) | song-generation(run2 + run3) | R1-R9 + PostToolUse hook + cron 防僵尸 | `43e453e` | ✅ 已闭环 |
+| 2026-05-21 | [baseline-3-blockers-fix](../fixes/2026-05-21-baseline-3-blockers-fix.md) | song-generation(baseline) | R5 + R6 + R7 + preflight 必调用 | `8dbe1d5` | ✅ 已闭环 |
+| 2026-05-21 | [agent-isolation-fix](../fixes/2026-05-21-agent-isolation-fix.md) | song-generation(run2) | R1 + R9 + verify 独立判定 | `43e453e` | ✅ 已闭环 |
+| 2026-05-21 | [sleep-loop-discipline-fix](../fixes/2026-05-21-sleep-loop-discipline-fix.md) | song-generation(run2) | R4(5 个子规则)+ PostToolUse 检测 | `43e453e` | ✅ 已闭环 |
+| 2026-05-19 | [cron-driven-architecture-fix](../fixes/2026-05-19-cron-driven-architecture-fix.md) | (架构立项,无具体 run) | 5 阶段流水线 + state.json 接续 | `84763ae` | ✅ 已闭环 |
+
+### 相关 Retro(phase 主动复盘 — 与 fix 互补)
+
+| 文件 | 描述 |
+|---|---|
+| [retros/2026-05-25-phase5-l1-test-retro.md](../retros/2026-05-25-phase5-l1-test-retro.md) | Phase 5 L1 测试 15 条改善点 → 已逐条闭环为 fix |
+
+---
+
+## 🗂️ 记录规则（本项目如何记录进度 / 问题 / 方案 / 架构改善）
+
+> **2026-05-27 更新**:加入 fix 记录体系。完整规则见两份 governance 文档:[spec-plan-governance](../specs/2026-05-27-spec-plan-governance.md) + [fix-records-governance](../specs/2026-05-27-fix-records-governance.md)。
+
+| 要记什么 | 用哪个文件 | 纪律 |
+|---|---|---|
+| **进度**(做到哪了) | `git log` + 本文件「当前状态」节 + 下方 Phase Milestones 表 | 每个工作 session 结束必 commit;phase 状态变化时更新本文件 |
+| **架构改善**(spec/SKILL 影响) | `../fixes/<date>-<topic>-fix.md`(新建) | **先写 fix → 再改 spec/SKILL → 加 ChangeLog**(避免和开发冲突)。详见 fix-records-governance |
+| **Phase 主动复盘** | `../retros/<date>-<topic>-retro.md` | phase 完成时写,改善点闭环时**生成对应 fix** |
+| **未解决 / 阻塞 / 待决策** | `../../../pending_human/<slug>.md` | 遇到卡点或需人决策即写;闭环后可升级为 fix |
+| **跨项目踩坑** | `../../../memory/lessons/*.md` | 通用技术经验沉淀(torch-sm12 / hf-gated / flash-attn-build);fix 多次复现可提升 |
+| **项目内运行时修复** | `workspace/<slug>/logs/fixes.log` | LLM 试跑时自动 append,**不是平台 fix**(不入 fixes/) |
+| **设计** | `../specs/*.md` | 大改动先写 spec(或 addendum 引用原 spec);末尾必加 ChangeLog |
+| **SubAgent 规则** | `.claude/skills/*/SKILL.md` | 由 fix 驱动的硬约束改动 → 加 ChangeLog;纯实现/错字 → 仅 git commit |
+
+**每-session 仪式(4 步,防止记录滞后于现实)**:
+1. 结束前 `git commit`(哪怕 WIP)— git log 是零成本的权威进度记录
+2. 若**有架构改善** → **先写 fix.md** → 再改 spec/SKILL → 被改文件加 ChangeLog 条目
+3. 若 phase 状态变了 → 更新本文件「当前状态」+ Milestones 表 + Fix 索引
+4. 若发现新问题/卡点 → 追加 retro 或写 pending_human
 
 ---
 
@@ -83,8 +138,10 @@
 ## ⬜ 待办（设计 / 功能 / 事情）
 
 ### 待完成的设计 / 计划（需决策才能动）
-- **cleanup 不覆盖 `runs/<run-id>/.cache/`**（实测 22GB 残留）→ 待在 **A**(清自己 run cache) / **B**(清所有 done run) / **C**(独立 skill) / **D**(文档化周清) 中决策。建议先写进 `pending_human/`。
 - **S-1 SKILL 约束根本解**：SubAgent 无法传 `--append-system-prompt`，导致 skill 规则被 LLM 自由发挥绕过。当前靠 `_template.md` 写死易错字段缓解；根本解需平台层改动，暂搁置。
+
+### 已落地的设计决策（曾经的待决策项 — 留档供回溯）
+- **cleanup `runs/<run-id>/.cache/` 处理**（实测 22GB 残留)：用户 2026-05-26 选 **A**（cleanup 同步清自己 run 的 cache，**不**递归清其他 run）→ 已在 `cleanup-deployed-workspace/SKILL.md` 第 2.5 步实现，cleanup.json 加 `run_cache_freed_bytes` / `run_cache_removed` 细分字段。commit `42bdc5c`
 
 ### 待开发 / 测试的功能（Phase 5 Task 5-13，详见 `2026-05-25-phase-5-runbook-and-cleanup.md`）
 - **Task 5-7**：主 agent 串联 —— `auto-deploy` / `auto-daily` 末尾接 runbook→cleanup dispatch；`write-recommendation` 接 `runbook_paths`
@@ -95,7 +152,7 @@
 
 ### 待做的事情
 - **push 到 Gitea**（`http://192.168.1.227/maihaicheng/ai-auto-harness`，19 commits 未推）—— 外发操作，需用户确认
-- **修 verify.json `passed=null`**：hunyuan3d-2 / omnivoice 日报写"已验证成功"，但 `results/verify.json.passed` 是 null，下游（auto-status / cleanup G4）会误判 —— 查 verify SubAgent 落盘逻辑
+- ~~**修 verify.json `passed=null`**~~：✅ 2026-05-27 已处理。根因不是 null,是 LLM 自创 schema 完全缺 `passed` 字段(`status+checks` / `status+verdict` 自创格式)。修法:(1) 回填 hunyuan3d-2 + omnivoice 的 `passed:true`(基于日报已确认)(2) 强化 `verify/SKILL.md` 加 jq -e 自检 + 反模式列表(3) 新建 `scripts/validate-verify.sh` 机器拦截。Task 5-7 串联跑时会重触 verify,新落盘自然走完整 6 字段 schema
 
 ---
 

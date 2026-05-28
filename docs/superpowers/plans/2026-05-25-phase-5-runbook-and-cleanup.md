@@ -326,16 +326,18 @@ digraph phase5 {
 
 ## 验收（Phase 5 完成的标志）
 
-- [ ] runbook-agent / cleanup-agent 两个 skill 文件存在 + 在 `auto-status` 看得到
-- [ ] 在 song-generation-run2 workspace 上跑 runbook-agent 产出符合契约的 markdown
-- [ ] 在 song-generation-run2 workspace 上跑 cleanup-agent dry_run 输出正确清单
-- [ ] auto-deploy / auto-daily 末尾自动调用 runbook + cleanup（dry_run）
-- [ ] 一个小项目 e2e 跑通，runbook + 清理都正确发生
-- [ ] cleanup 切 dry_run=false，下次部署真清磁盘 ~28GB
-- [ ] auto-status 显示 archived 项目分组
-- [ ] auto-recover 拒绝接续 archived
-- [ ] settings.json deny 生效（手动 `rm -rf workspace` 被拦）
-- [ ] 全部 commit 进 git，能 revert 任一 task
+- [x] runbook-agent / cleanup-agent 两个 skill 文件存在 + 已注册为 project skill（/context 可见）
+- [x] 在 song-generation-run2 workspace 上跑 runbook-agent 产出符合契约的 markdown（L1 测试 2026-05-25 ✅）
+- [x] 在 song-generation-run2 workspace 上跑 cleanup-agent dry_run 输出正确清单（L1 + P4-5 防护 5/5 ✅）
+- [ ] auto-deploy / auto-daily 末尾自动调用 runbook + cleanup（dry_run）　← Task 5-6
+- [ ] 一个小项目 e2e 跑通，runbook + 清理都正确发生　← Task 8
+- [ ] cleanup 切 dry_run=false，下次部署真清磁盘 ~28GB　← Task 9
+- [ ] auto-status 显示 archived 项目分组　← Task 10
+- [ ] auto-recover 拒绝接续 archived　← Task 11
+- [ ] settings.json deny 生效（手动 `rm -rf workspace` 被拦）　← Task 13
+- [ ] 全部 commit 进 git，能 revert 任一 task　← Task 5-13 改动待提交
+
+> **进度**：前 3 项 ✅（实现 + L1 测试，commit `9ee6fb3`/`42bdc5c`）；后 7 项 ⬜ = Phase 5 主流程串联（Task 5-13）尚未做。
 
 ---
 
