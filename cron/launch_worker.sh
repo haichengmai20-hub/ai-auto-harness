@@ -1,6 +1,16 @@
 #!/bin/bash
 # 通用 worker 启动器(对齐 ai-intel-deploy baseline 姿势)
 #
+# ⚠️ 所有部署(/auto-deploy, /auto-recover, /auto-daily 等)都必须经此脚本启动,
+# 而非交互式手动 session。原因:
+#   1. 此脚本输出 harness.stdout.ndjson(--output-format stream-json --verbose),
+#      交互式 session 只产 transcript.jsonl(格式不同,cleanup G2 需额外兼容)
+#   2. 此脚本负责 hook_state 初始化 / 缓存隔离 / 僵尸清理 / PID 管理,
+#      交互式 session 不走这套,导致 R1/R4/R6 等规则无 hook 执行
+#   3. 此脚本写 worker.pid + haha.pid + cron.status,交互式 session 不写,
+#      下游 cleanup/cron 依赖这些文件判断进程状态
+# 详见 Fix: 2026-05-29-g2-trace-format-flexible-fix
+#
 # 用法:
 #   bash cron/launch_worker.sh "<prompt>" "<log_dir>" [<slug>]
 #

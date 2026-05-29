@@ -79,10 +79,12 @@ if [ ! -d "$TRACE_DIR" ]; then
     SKIPPED=true
     SKIPPED_REASON="G2_trace_dir_missing"
 fi
-if [ ! -f "$TRACE_DIR/harness.stdout.ndjson" ]; then
-    echo "REFUSED G2: harness.stdout.ndjson 缺失" >> "$LOG"
+# trace 文件检查:launch_worker.sh 产 harness.stdout.ndjson,交互式 session 产 transcript.jsonl
+# 两种格式都算 trace 完整(见 Fix 2026-05-29-g2-trace-format-flexible-fix)
+if [ ! -f "$TRACE_DIR/harness.stdout.ndjson" ] && [ ! -f "$TRACE_DIR/transcript.jsonl" ]; then
+    echo "REFUSED G2: trace 文件缺失(harness.stdout.ndjson 和 transcript.jsonl 都不存在)" >> "$LOG"
     SKIPPED=true
-    SKIPPED_REASON="G2_ndjson_missing"
+    SKIPPED_REASON="G2_trace_file_missing"
 fi
 if [ ! -f "$TRACE_DIR/meta.json" ]; then
     echo "REFUSED G2: meta.json 缺失" >> "$LOG"

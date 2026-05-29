@@ -1,66 +1,90 @@
-# Fix 记录 — ai-auto-harness 架构改善事实链
+# Fix 记录索引
 
-> 这个目录记录**平台/架构/流程级**的改善 — **不**是项目部署修复。
-> 完整规则见 [../specs/2026-05-27-fix-records-governance.md](../specs/2026-05-27-fix-records-governance.md)。
-> 配套 [../specs/2026-05-27-spec-plan-governance.md](../specs/2026-05-27-spec-plan-governance.md)(spec/plan ChangeLog 规则)。
+> 治理规则见 `docs/superpowers/specs/2026-05-27-fix-records-governance.md`
 
----
+## 索引
 
-## 速查:什么时候写 fix.md(60 秒判定)
+| # | Fix ID | 级别 | 状态 | 一句话 |
+|---|--------|------|------|--------|
+| 1 | [2026-05-19-cron-driven-architecture-fix](2026-05-19-cron-driven-architecture-fix.md) | P1 | ✅ 已闭环 | cron-driven 架构定型和 R1-R9 规则建立 |
+| 2 | [2026-05-21-agent-isolation-fix](2026-05-21-agent-isolation-fix.md) | P1 | ✅ 已闭环 | 主 agent 越权亲自 bash,R9 违规 |
+| 3 | [2026-05-21-baseline-3-blockers-fix](2026-05-21-baseline-3-blockers-fix.md) | P1 | ✅ 已闭环 | SongGen 部署 3 大阻塞:torch/cuda/flash-attn |
+| 4 | [2026-05-21-sleep-loop-discipline-fix](2026-05-21-sleep-loop-discipline-fix.md) | P1 | ✅ 已闭环 | R4 poll 预算 / sleep-loop 纪律 |
+| 5 | [2026-05-22-song-generation-pipeline-fix](2026-05-22-song-generation-pipeline-fix.md) | P1 | ✅ 已闭环 | SongGen:torchcodec 缺失 + symlink 损坏 |
+| 6 | [2026-05-22-gpu-verify-protocol-fix](2026-05-22-gpu-verify-protocol-fix.md) | P1 | ✅ 已闭环 | GPU 架构验证协议(torch sm_120 标准化) |
+| 7 | [2026-05-25-phase5-l1-test-retro-fixes](2026-05-25-phase5-l1-test-retro-fixes.md) | P1 | ✅ 已闭环 | Phase 5 L1 测试:SKILL.md 约束不够硬(归入 #9) |
+| 8 | [2026-05-26-phase5-l1-retro-15-fixes](2026-05-26-phase5-l1-retro-15-fixes.md) | P1 | ✅ 已闭环 | Phase 5 L1 retro 15 条修复(节编号/Stage标题/deprecated命令/PHASE_END/dry_run字段/路径/freed_gib/不存在target) |
+| 9 | [2026-05-26-runs-cache-cleanup-decision-fix](2026-05-26-runs-cache-cleanup-decision-fix.md) | P2 | ✅ 已闭环 | runs/.cache 残留清理决策 |
+| 10 | [2026-05-26-v1.1-hardening-fix](2026-05-26-v1.1-hardening-fix.md) | P1 | ✅ 已闭环 | v1.1 硬化:SKILL.md 反模式 + hook 强化 |
+| 11 | [2026-05-27-cache-isolation-boundary-fix](2026-05-27-cache-isolation-boundary-fix.md) | P1 | ✅ 已闭环 | OmniVoice pip 缓存泄漏到系统目录(根因分析,修复归入 #18) |
+| 12 | [2026-05-27-fix-records-governance-fix](2026-05-27-fix-records-governance-fix.md) | P1 | ✅ 已闭环 | Fix 记录管控规则建立 |
+| 13 | [2026-05-27-spec-plan-governance-fix](2026-05-27-spec-plan-governance-fix.md) | P1 | ✅ 已闭环 | Spec/Plan 管控规则建立 |
+| 14 | [2026-05-27-verify-schema-enforcement-fix](2026-05-27-verify-schema-enforcement-fix.md) | P1 | ✅ 已闭环 | verify schema 强约束 |
+| 15 | [2026-05-29-polling-handoff-mechanism-fix](2026-05-29-polling-handoff-mechanism-fix.md) | **P0** | ❌ 未落地 | **交接机制断裂(~18.7h 无人接棒)** |
+| 16 | [2026-05-29-env-no-daemon-auto-not-closed-loop-fix](2026-05-29-env-no-daemon-auto-not-closed-loop-fix.md) | **P0** | ❌ 未落地 | **环境无 cron/supervisord/init,自动化从未闭环** |
+| 17 | [2026-05-29-state-snapshot-stale-fix](2026-05-29-state-snapshot-stale-fix.md) | P1 | ❌ 未落地 | 状态快照失真(paused 快照由即将退出的 agent 拍) |
+| 18 | [2026-05-29-verify-content-level-check-fix](2026-05-29-verify-content-level-check-fix.md) | P1 | ❌ 未落地 | verify 只验响度/时长,不验内容 |
+| 19 | [2026-05-29-task-dispatch-not-isolated-fix](2026-05-29-task-dispatch-not-isolated-fix.md) | P1 | ❌ 未落地 | LLM 内联执行所有阶段(task_called=0) |
+| 20 | [2026-05-29-fetch-before-install-pip-leak-fix](2026-05-29-fetch-before-install-pip-leak-fix.md) | P1 | ❌ 未落地 | fetch 先于 install 导致系统级 pip 泄漏 |
+| 21 | [2026-05-29-cache-isolation-boundary-level-fix](2026-05-29-cache-isolation-boundary-level-fix.md) | P1 | ❌ 未落地 | 缓存隔离边界应从 run 级改到项目级/共享 |
+| 22 | [2026-05-29-run-json-process-field-inaccurate-fix](2026-05-29-run-json-process-field-inaccurate-fix.md) | P2 | ❌ 未落地 | run.json 过程字段失真(标称 0 修复 vs 实际有修复) |
+| 23 | [2026-05-29-poll-count-accumulate-cross-phase-fix](2026-05-29-poll-count-accumulate-cross-phase-fix.md) | P2 | ❌ 未落地 | poll_count 跨阶段累加超限 |
+| 24 | [2026-05-29-completed-at-literal-not-evaluated-fix](2026-05-29-completed-at-literal-not-evaluated-fix.md) | P2 | ❌ 未落地 | completed_at 字段是未求值的 shell 字面量 |
+| 25 | [2026-05-29-g2-trace-format-flexible-fix](2026-05-29-g2-trace-format-flexible-fix.md) | P1 | ✅ 已闭环 | G2 trace 检查只认 ndjson,交互式 session 产 jsonl 被误拒 |
 
-```
-试跑/讨论里发现的事 →
-    ├─ 单项目内 LLM 修了 requirements.txt / 装 torch?    → ❌ 不写 fix,走 workspace/<slug>/logs/fixes.log
-    ├─ 看出 ai-auto-harness 平台层该改的规则/SKILL?       → ✅ 写 fix.md
-    ├─ 多个项目都撞同一技术问题?                          → ✅ 写 fix.md + 提升到 memory/lessons/
-    ├─ Phase 完成的复盘?                                  → ❌ 写 retro,然后逐条改善点 → 各自一份 fix.md
-    └─ 当前无法解决的卡点?                                → ❌ 写 pending_human/,闭环后升级 fix
-```
+## 统计
 
-## 速查:fix.md 怎么写(3 步)
+- 总计:25 条
+- ✅ 已闭环:15 条
+- ❌ 未落地:10 条
+- P0:2 条(均为未落地)
+- P1:18 条(15 已闭环 + 3 未落地)
+- P2:5 条(2 已闭环 + 3 未落地)
 
-```
-1. 复制 _template-fix.md 到 <YYYY-MM-DD>-<topic>-fix.md
-2. 先填 "部署项目来源" 节(slug + run_id + 时间) ← 必填,否则后人无法追溯
-3. 走 fix-records-governance §5 的 8 步闭环
-```
+## 按项目分组
 
----
+### 跨项目/平台级
+- #1 cron-driven 架构
+- #2 主 agent 隔离
+- #4 R4 poll 预算
+- #6 GPU 验证协议(跨 3 项目)
+- #9 runs cache 清理
+- #10 v1.1 硬化
+- #12 fix 记录管控
+- #13 spec/plan 管控
+- #15 交接机制断裂
+- #16 环境无 daemon
+- #17 状态快照失真
+- #18 verify 内容级检查
+- #19 Task() 隔离未落地
+- #21 缓存边界级
+- #23 poll_count 累加
 
-## Fix 索引(按日期倒序)
+### song-generation
+- #3 部署 3 大阻塞
+- #5 torchcodec + symlink
+- #7 L1 测试(归入 #8)
+- #8 L1 retro 15 条修复
 
-> 最新更新时:同步 [../plans/2026-05-19-ai-auto-harness-master.md](../plans/2026-05-19-ai-auto-harness-master.md) 的 Fix 索引区。
+### omnivoice
+- #11 pip 缓存泄漏(根因分析)
+- #20 fetch→install pip 泄漏
+- #22 run.json 字段失真
 
-| 日期 | Fix | 状态 | 部署项目 | 影响 | commit |
-|---|---|---|---|---|---|
-| 2026-05-27 | [verify-schema-enforcement-fix](2026-05-27-verify-schema-enforcement-fix.md) | 已闭环 | hunyuan3d-2 / omnivoice / song-generation-run2 | `verify/SKILL.md` + `scripts/validate-verify.sh` | (待补) |
-| 2026-05-26 | [phase5-l1-retro-15-fixes](2026-05-26-phase5-l1-retro-15-fixes.md) | 已闭环 | song-generation-run2 (L1 test) | runbook/cleanup 两个 SKILL + scripts | `42bdc5c` |
-| 2026-05-26 | [runs-cache-cleanup-decision-fix](2026-05-26-runs-cache-cleanup-decision-fix.md) | 已闭环 | song-generation-run2 / song-generation | `cleanup-deployed-workspace/SKILL.md` 第 2.5 步 | `42bdc5c` |
-| 2026-05-26 | [v1.1-hardening-fix](2026-05-26-v1.1-hardening-fix.md) | 已闭环 | song-generation (run2 + run3) | R1-R9 + PostToolUse hook + cron 防僵尸 | `43e453e` |
-| 2026-05-21 | [baseline-3-blockers-fix](2026-05-21-baseline-3-blockers-fix.md) | 已闭环 | song-generation | cache 隔离 / 禁并行 pip / GPU preflight → R5 R6 | `8dbe1d5` |
-| 2026-05-21 | [agent-isolation-fix](2026-05-21-agent-isolation-fix.md) | 已闭环 | song-generation (run2) | 主/子 agent 严格隔离 → R1 R9 | `43e453e` |
-| 2026-05-21 | [sleep-loop-discipline-fix](2026-05-21-sleep-loop-discipline-fix.md) | 已闭环 | song-generation (run2) | sleep 浪费 turn → R4 | `43e453e` |
-| 2026-05-19 | [cron-driven-architecture-fix](2026-05-19-cron-driven-architecture-fix.md) | 已闭环 | (架构立项,无具体 run) | 5 阶段 SubAgent 流水线 + state.json 接续 | `84763ae` |
+### hunyuan3d-2
+- #14 verify schema
+- #24 completed_at 字面量
+- #25 G2 trace 格式兼容
 
----
+## 优先修复建议
 
-## 命名约定提醒
+**P0(必须立即修)**:
+1. #15 交接机制断裂 — 设计方案已有,待落地(MVP:SessionStart hook 自愈)
+2. #16 环境无 daemon — 需运维层改动(装 cron / 启 supervisord)
 
-- 文件:`<YYYY-MM-DD>-<topic-kebab-case>-fix.md`
-- **topic 是问题主题,不是项目名**
-  - ✅ `2026-05-26-runs-cache-cleanup-decision-fix.md`
-  - ❌ `2026-05-26-songgen-run2-fix.md`(项目名 — 那是 workspace/fixes.log 的语义)
-
----
-
-## 与其他记录的边界(一图速查)
-
-| 记录 | 位置 | 写者 | 粒度 |
-|---|---|---|---|
-| **Fix(本目录)** | `docs/superpowers/fixes/` | 人/AI | **平台**架构改善 |
-| 项目修复日志 | `workspace/<slug>/logs/fixes.log` | LLM 试跑时 | **项目**内运行时修复(自动 append) |
-| 决策记录 | `runs/<run-id>/decisions.md` | SubAgent | per-run 决策 |
-| 通用踩坑 | `memory/lessons/<topic>.md` | 人 | **跨项目**通用技术 |
-| Phase 复盘 | `docs/superpowers/retros/<date>-*.md` | 人 | **phase 周期**回顾 |
-| 未闭环卡点 | `pending_human/<topic>.md` | SubAgent/人 | 待人决策 |
-| 变更行为 | `git log` | git | 每次 commit |
+**P1(本周应修)**:
+3. #19 Task() 隔离未落地 — 需先调研 --bare 下 Task() 行为
+4. #20 fetch→install pip 泄漏 — 三种方案待选
+5. #17 状态快照失真 — 与 #15 ① 自报终态是同一方案
+6. #18 verify 内容级检查 — 需设计分级验证策略
+7. #21 缓存边界级 — 方案待选(项目级 vs 全局共享)
