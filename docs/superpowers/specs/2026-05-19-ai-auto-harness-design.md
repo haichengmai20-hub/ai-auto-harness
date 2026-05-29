@@ -1,9 +1,8 @@
 # AI Auto Harness — 设计文档
 
 **日期**:2026-05-19
-**作者**:Claude(brainstorming 协作)+ haichengmai20@gmail.com
-**状态**:设计稿,待 review
-**目标读者**:平台实施者(下一阶段 writing-plans 的输入)
+**状态**:设计稿，设计已完成开发
+**目标读者**:开发步骤计划者(下一阶段 writing-plans 的输入)
 
 ---
 
