@@ -24,6 +24,8 @@ allowed-tools: [Read, Write, Bash, mcp__ai_daily_scan__record_outcome]
       "run_result": {...},
       "verify_result": {...},
       "api_skeleton_result": {...},
+      "runbook_path": "reports/runbooks/<slug>-<YYYY-MM-DD>.md" or null,
+      "cleanup_result": { "removed_bytes": ..., "freed_gib": ..., "skipped_reason": ... } or null,
       "pending_human_path": "pending_human/<slug>.md" or null,
       "error_class": "..." or null,
       "phase_failed_at": "..." or null,
@@ -84,6 +86,8 @@ Template(实际写时按 run_results 内容填):
   - 修复内容:`<fixes_applied 列表>`
   - GPU 利用:`<gpu_snapshot 简略>`(若已跑通)
 - **完整 trace**:[runs/<run_id>/](runs/<run_id>/)
+- **部署 runbook**(若 `runbook_path`):[`<runbook_path>`](`<runbook_path>`) — 复现指南 + 踩坑速查
+- **Workspace 已归档**(若 `cleanup_result.removed_bytes` > 0):释放 `<freed_gib>` GiB,保留 `state.json / results / logs / output`
 
 <若 FAILED,加:>
 - **失败原因**:`<error_class>`(阶段 `<phase_failed_at>`)
@@ -186,3 +190,5 @@ jq '.phase = "done"
 - ❌ 不要忘记调 record_outcome — scan 不知道你跑过会重复推荐
 - ❌ 不要把 SubAgent 内部决策轨迹原文搬进报告(太长)— 只摘 "改了 batch_size 4→1, OOM 解决"这种结论
 - ❌ 不要尝试 git push — 那是用户的事,我们只 commit 本地
+- ❌ 不要忘渲染 `runbook_path` 链接 — 它是下游 AI 复用本次部署的唯一入口
+- ❌ 不要在 `runbook_path` 为 null 时强写链接(失败 case 也可能没 runbook)— 用 `<若 runbook_path:>` 守卫

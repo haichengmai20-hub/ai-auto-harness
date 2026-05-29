@@ -88,7 +88,10 @@ find workspace -maxdepth 2 -name state.json -exec jq -c '{slug, phase, phases_do
 | `fetching` | `fetch-weights` | `installing` |
 | `installing` | `install-env` | `running` |
 | `running` | `run-and-repair` | `verifying` |
-| `verifying` | `verify` | `done` |
+| `verifying` | `verify` | `runbook_pending` |
+| `runbook_pending` | `runbook-agent`(write-deploy-runbook) | `cleanup_pending`(若 verify_passed)或 `done`(verify 失败) |
+| `cleanup_pending` | `cleanup-agent`(cleanup-deployed-workspace) | `archived` |
+| `archived` | — | (终态,等价 done) |
 
 **执行循环**(伪代码,每一步你都用对应的 Task 工具实际跑):
 
@@ -100,17 +103,23 @@ while True:
     else:
         PHASE = jq -r '.phase' "$WORKSPACE/state.json"
 
-    if PHASE in ["done", "paused_for_human"]:
+    if PHASE in ["done", "archived", "paused_for_human"]:
         break  # 完成或卡住,进任务 4
 
     # 选 SubAgent
     SKILL = {"null": "intake", "fetching": "fetch-weights",
              "installing": "install-env", "running": "run-and-repair",
-             "verifying": "verify"}[PHASE]
+             "verifying": "verify",
+             "runbook_pending": "runbook-agent",
+             "cleanup_pending": "cleanup-agent"}[PHASE]
 
+    # 注:verifying → 下一步是 runbook_pending(不直接 done)。runbook 跑完才决定走
+    #     cleanup_pending(verify_passed) 或 done(verify 失败,保留 workspace)。
     NEXT_PHASE = {"null": "fetching", "fetching": "installing",
                   "installing": "running", "running": "verifying",
-                  "verifying": "done"}[PHASE]
+                  "verifying": "runbook_pending",
+                  "runbook_pending": "cleanup_pending_or_done",  # 见下面 RUNBOOK 后处理
+                  "cleanup_pending": "archived"}[PHASE]
 
     # 用 Task 工具 dispatch SubAgent(传入 slug + 必要上下文)
     RESULT = Task(subagent_type=SKILL, input={
@@ -130,12 +139,53 @@ while True:
         # fetch-weights 跨 cron 接续场景 — state.phase 不变,等下次 cron
         break  # 进任务 4(报告写"in progress")
 
+    # runbook 跑完的分支决策(verify 失败时不进 cleanup,保留 workspace)
+    if SKILL == "runbook-agent":
+        verify_passed = (state.verify_result or {}).get("passed", False) is True
+        NEXT_PHASE = "cleanup_pending" if verify_passed else "done"
+        RUNBOOK_PATH = RESULT.get("runbook_path")  # 透传给任务 4 用
+
     # 更新 state.json:phase 切到 NEXT_PHASE,phases_done append
     jq --arg p "$NEXT_PHASE" --arg s "$SKILL" --arg t "$(date -Iseconds)" \
        '.phase = $p | .phases_done += [$s] | .updated_at = $t | .{$SKILL}_result = '"$(echo $RESULT)"'' \
        "$WORKSPACE/state.json" > /tmp/s && mv /tmp/s "$WORKSPACE/state.json"
 
     # 继续下一轮
+```
+
+**关键 dispatch prompt(runbook-agent + cleanup-agent)**:
+
+```python
+# Phase: runbook_pending
+RUNBOOK_RESULT = Task(
+    subagent_type="runbook-agent",
+    description=f"write deploy runbook for {SLUG}",
+    prompt=f"""
+slug: {SLUG}
+workspace_path: workspace/{SLUG}
+run_id: {RUN_ID}
+verify_passed: {verify_result.get("passed", False)}
+verify_result: {json.dumps(verify_result)}
+github_url: {state["github_url"]}
+force_status: null
+"""
+)
+RUNBOOK_PATH = RUNBOOK_RESULT.get("runbook_path")
+
+# Phase: cleanup_pending(仅 verify_passed=true 才进来)
+CLEANUP_RESULT = Task(
+    subagent_type="cleanup-agent",
+    description=f"cleanup workspace for {SLUG}",
+    prompt=f"""
+slug: {SLUG}
+workspace_path: workspace/{SLUG}
+run_id: {RUN_ID}
+verify_passed: true
+runbook_path: {RUNBOOK_PATH}
+dry_run: false
+force_cleanup_incomplete: false
+"""
+)
 ```
 
 任一 SubAgent 返回 `blocked=true`、`paused_for_human` 或 `paused_in_progress` → 跳到任务 4 写报告。
@@ -160,6 +210,7 @@ while True:
 ### 任务 4:写报告 + 回填
 
 - 调 **write-recommendation skill** 写 `reports/<YYYY-MM-DD>.md`(覆写,因单天可能多次 cron 重跑)
+  - 输入 `run_results[i]` 必须含 `runbook_path`(可为 null)+ `cleanup_result`(可为 null)— 让日报渲染部署手册链接
 - 调 `mcp__ai_daily_scan__record_outcome(slug, status, ...)` 回填给 scan
 
 ## 硬约束
@@ -174,3 +225,6 @@ while True:
 - 不要主 agent 自己 git clone / pip install — 都交给 SubAgent
 - 不要并行 dispatch 多个 SubAgent(初版 N=1)
 - 不要 max_turns > 3 在 SubAgent 失败时硬试
+- 不要 verify 失败时还跑 cleanup-agent — workspace 是失败 case 的唯一现场
+- 不要 verify 失败就跳过 runbook-agent — 失败 runbook 的踩坑章节对下次有价值
+- 不要忘了把 runbook_path 透传给 write-recommendation — 日报缺链接

@@ -153,17 +153,82 @@ if install_result.deps_ok:
 if run_result.status == "done":
     Task(subagent_type="verify-agent", ...)
 
-# 任一 blocked / paused_for_human / paused_in_progress → 跳到任务 5,写报告
+# 任一 blocked / paused_for_human / paused_in_progress → 跳到任务 5(写报告)
+# verify 跑完(无论 pass/fail)→ 进入任务 4.5 → 任务 4.6 → 任务 5
 ```
 
 **关键规则**:每个 Task() 返回后,主 agent 必须:
 1. 读 `workspace/<slug>/results/<phase>.json` 确认 SubAgent 落盘
 2. 更新 `workspace/<slug>/state.json`:`phases_done += ["<phase>"]`, `phase = "<next>"`,`updated_at = now()`
-3. 若 SubAgent 返回 blocked / paused → 不 dispatch 下一个,直接跳到任务 5
+3. 若 SubAgent 返回 blocked / paused → 不 dispatch 下一个,直接跳到任务 5(无 runbook、无 cleanup)
+
+### 任务 4.5:写部署 runbook(verify 跑完即触发,不论 pass/fail)
+
+`verify` SubAgent 返回后,无论 `verify_result.passed` 是 true / false,都 dispatch `runbook-agent` 抽取本次部署 runbook(失败 case 也有价值 — 给下次部署者看踩坑)。
+
+```python
+RUNBOOK_RESULT = Task(
+    subagent_type="runbook-agent",
+    description=f"write deploy runbook for {SLUG}",
+    prompt=f"""
+slug: {SLUG}
+workspace_path: workspace/{SLUG}
+run_id: {RUN_ID}
+verify_passed: {verify_result.get("passed", False)}
+verify_result: {json.dumps(verify_result)}
+github_url: {ARGUMENTS}
+force_status: null
+"""
+)
+# RUNBOOK_RESULT = { "runbook_path": "reports/runbooks/<slug>-<date>.md", "status": "..." }
+RUNBOOK_PATH = RUNBOOK_RESULT.get("runbook_path")
+```
+
+写完后双写落盘:`workspace/<slug>/results/runbook.json` + `runs/$RUN_ID/runbook.json`。
+
+### 任务 4.6:cleanup workspace(仅 verify_passed=true)
+
+```python
+if verify_result.get("passed") is True:
+    CLEANUP_RESULT = Task(
+        subagent_type="cleanup-agent",
+        description=f"cleanup workspace for {SLUG}",
+        prompt=f"""
+slug: {SLUG}
+workspace_path: workspace/{SLUG}
+run_id: {RUN_ID}
+verify_passed: true
+runbook_path: {RUNBOOK_PATH}
+dry_run: false
+force_cleanup_incomplete: false
+"""
+    )
+    # state.phase 由 cleanup-agent 自己改成 "archived"
+else:
+    # verify 没过:保留 workspace 给人工 debug,不 cleanup
+    CLEANUP_RESULT = None
+```
+
+**为什么 verify 失败不 cleanup**:R-Phase5-1 — workspace 是失败 case 的唯一现场,清掉就丢线索。
 
 ### 任务 5:写报告 + 回填
 
-调 **write-recommendation** skill,同 auto-daily 任务 4。
+调 **write-recommendation** skill,同 auto-daily 任务 4。**必须把 `RUNBOOK_PATH` 透传给 write-recommendation**(让日报含部署 runbook 链接):
+
+```python
+write_recommendation_input = {
+    "run_id": RUN_ID,
+    "run_results": [{
+        "slug": SLUG,
+        "status": <derived from verify_result.passed>,
+        ...其他字段同前,
+        "runbook_path": RUNBOOK_PATH,        # ← 新增,可为 null
+        "cleanup_result": CLEANUP_RESULT,    # ← 新增,可为 null
+        ...
+    }],
+    ...
+}
+```
 
 ## slug 生成规则
 
@@ -221,3 +286,6 @@ fi
 - ❌ **不要主 agent 自己 `Bash(git clone / hf download / pip install / python ...)`** — 用 `Task()` dispatch SubAgent。主 agent 的 Bash 仅限读 state.json / 写 meta.json / 调度类操作
 - ❌ **不要在同一个 Task() 让 SubAgent 跨 phase 干活**(比如让 fetch-agent "顺手装个 pip")— phase 边界要硬
 - ❌ **不要并行 dispatch 多个 SubAgent**(N=1,串行)— 带宽 / GPU 都是单一资源
+- ❌ **不要 verify 失败时还跑 cleanup-agent** — 失败 case 的 workspace 是唯一现场,清掉就丢线索
+- ❌ **不要 verify 失败就跳过 runbook-agent** — 失败 case runbook 对下次部署者(踩坑章节)同样有价值
+- ❌ **不要 runbook / cleanup 跑完忘了把 `runbook_path` 透传给 write-recommendation** — 日报缺链接
