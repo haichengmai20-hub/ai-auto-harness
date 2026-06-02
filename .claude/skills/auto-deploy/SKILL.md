@@ -136,7 +136,8 @@ hf_repos: {finding['hf_repos']}
 workspace_path: workspace/{SLUG}
 run_id: {RUN_ID}
 
-按 fetch-weights skill 跑完(用 hf download + HF_TOKEN + HF_HUB_ENABLE_HF_TRANSFER=1)。
+按 fetch-weights skill 跑完(用 hf download + HF_TOKEN + HF_XET_HIGH_PERFORMANCE=1;
+hf download 默认断点续传,不加 --resume-download)。
 绝不启动 pip install 或动其他 workspace。
 """
     )

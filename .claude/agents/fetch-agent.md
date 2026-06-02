@@ -21,6 +21,8 @@ allowed-tools: [Read, Write, Bash, BashOutput, KillBash]
 ## 你绝不做
 
 - 不要用 `Bash(timeout=...)` 兜底长下载 — 用 background + poll
-- 不要 `rm -rf .cache` 重头来 — 会丢已下载部分,要用 `huggingface-cli --resume-download`
+- 不要 `rm -rf .cache` 重头来 — 会丢已下载部分;`hf download` 默认断点续传,重跑即继续
+- 不要用 `huggingface-cli` 或 `--resume-download`(都已废弃/移除)— 统一 `hf download`(默认续传),加速用 `HF_XET_HIGH_PERFORMANCE=1`(非 `HF_HUB_ENABLE_HF_TRANSFER`)
+- 不要并发起多个 `hf download` 写同一 `--local-dir` — 起前先 `pgrep -f "hf download.*<repo>"`
 - 不要 wait 一个 bg shell(`wait <pid>`)— 用 BashOutput 周期 poll
 - 不要污染 workspace 外的文件系统(`$HOME/.cache/huggingface` 等)

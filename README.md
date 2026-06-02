@@ -146,7 +146,7 @@
 | **R4** 禁 sleep 浪费 turn | (1) 单次 sleep ≤ 60s;(2) **连续 sleep 绝对禁** — 上一 turn 是 sleep 则这一 turn 不许;(3) poll ≤ 8 turn,超过 `paused_in_progress` 退出让 cron 接续 | run2:270min 总 sleep,8 段连续 sleep 链(其中 3 段长 5),烧 $20.70 干 0 件有意义的事 |
 | **R5** fetch / install 串行 | 带宽是单根管道,fetch 必须 done 才进 install,不并行抢 | run2:pip torch 2GB 与 hf 28GB 同时跑,各慢一倍 |
 | **R6** 禁 `pip install --no-cache-dir` | `PIP_CACHE_DIR` 已 env-level 隔离,加 `--no-cache-dir` 反而每次重下 wheel | run2:cmd 25 显式加了,白下载 |
-| **R7** 用 `hf` 不用 `huggingface-cli` | 后者已 deprecated 无加速;`hf download --token "$HF_TOKEN"` + `HF_HUB_ENABLE_HF_TRANSFER=1` ≈ 200MB/s | run2:用了 `huggingface-cli` + 无 token + 无 hf_transfer → 0.3MB/s |
+| **R7** 用 `hf` 不用 `huggingface-cli` | 后者已 deprecated 无加速;`hf download --token "$HF_TOKEN"`(默认断点续传,无 `--resume-download`)+ `HF_XET_HIGH_PERFORMANCE=1`(Xet 后端,非废弃的 `HF_HUB_ENABLE_HF_TRANSFER`) | run2:用了 `huggingface-cli` + 无 token + 无加速 → 0.3MB/s |
 | **R8** PHASE_START/END 标记 | 每 SubAgent 进出 echo `=== PHASE_START phase=X slug=Y run_id=Z ts=...` / `=== PHASE_END phase=X slug=Y status=done ts=...`,monitor `grep -E "^=== PHASE_"` 直接拿事件 | ndjson 无结构化阶段事件 |
 | **R9** 其他 | 主 agent 不亲自 bash;run-and-repair 不超 3 轮;不污染全局 HF cache;verify 不修问题 | (从原"不要做"段保留) |
 
@@ -262,7 +262,7 @@ fetch-weights skill 实际:    hf download --local-dir $WORKSPACE/.cache/hf_mode
                              $WORKSPACE/.cache/hf_models/<repo>/  (workspace 持久,跨 run 复用)
 ```
 
-下次 run 启动,即使 HF_HOME 是新隔离目录,`hf download --resume-download` 看到 `--local-dir` 里已有文件就 resume。**HF cache 隔离 ≠ 权重重下**。
+下次 run 启动,即使 HF_HOME 是新隔离目录,`hf download`(默认断点续传)看到 `--local-dir` 里已有文件就 resume。**HF cache 隔离 ≠ 权重重下**。
 
 ### 3. LLM 自主修复(替代 rule-based)
 
@@ -367,7 +367,7 @@ export XDG_CACHE_HOME="$ISOLATED_CACHE/xdg"
 
 | 输入 | hf_deps + workspace_path + intake.json(取 weight_target_paths) |
 |---|---|
-| 做什么 | `setsid nohup hf download <repo> --token "$HF_TOKEN" --local-dir ... --resume-download` + `HF_HUB_ENABLE_HF_TRANSFER=1` 加速到 200MB/s → 周期 poll(不 sleep)→ 下完按 weight_target_paths 建 symlink 到 `$WORKSPACE/repo/<target_rel>` |
+| 做什么 | `HF_XET_HIGH_PERFORMANCE=1 setsid nohup hf download <repo> --token "$HF_TOKEN" --local-dir ...`(默认断点续传,不加 `--resume-download`)→ 周期 poll(不 sleep)→ 下完按 weight_target_paths 建 symlink 到 `$WORKSPACE/repo/<target_rel>` |
 | 输出 | `{weights_done, paused_in_progress, bytes_total}` |
 | 关键 | env-level + skill-level 双重 HF cache 隔离;`hf` 不用 `huggingface-cli`(R7);严禁 foreground sleep(R4);严禁动其他 workspace(R1) |
 

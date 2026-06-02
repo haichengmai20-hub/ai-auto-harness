@@ -14,7 +14,7 @@ agent: fetch-agent
 1. **只下,不装**:本 phase 严禁起任何 `pip install` / venv 创建,带宽给下载用(R5)
 2. **`hf` 不是 `huggingface-cli`**:后者已废弃,统一用 `hf download ... --token "$HF_TOKEN"`(R7)
 3. **HF_TOKEN 必须显式传**:不要靠 env 默认捡,`--token "$HF_TOKEN"` 显式写在命令里
-4. **HF_HUB_ENABLE_HF_TRANSFER=1**:加速到 ~200MB/s(不开默认 ~10-20MB/s,28GB 要下 40min vs 4min)
+4. **HF_XET_HIGH_PERFORMANCE=1**:开 Xet 高性能后端加速(huggingface_hub 1.x 已用 Xet 取代 hf_transfer;`HF_HUB_ENABLE_HF_TRANSFER` 已废弃,会出 FutureWarning,**禁用**)
 5. **foreground sleep ≤ 60s/次**(R4):长等用 `setsid nohup ... &` 后台 + tail log + `kill -0 $PID` 判活
 6. **state.json 每 phase 起止双写**(R2):本 skill 开头写 `phase=fetching, status=running`,return 前写 `status=done`
 7. **wall-clock 上限 180min**(R3):超过且进度 < 50% → `paused_for_human`;> 50% → `paused_in_progress`,下次 cron 接续
@@ -54,8 +54,9 @@ export HF_HOME="${HF_HOME:-$WORKSPACE/.cache/huggingface}"
 export HF_HUB_CACHE="${HF_HUB_CACHE:-$WORKSPACE/.cache/hf_hub}"
 export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$WORKSPACE/.cache/transformers}"
 
-# 加速:开 hf_transfer rust 后端,~200MB/s vs 默认 ~10-20MB/s
-export HF_HUB_ENABLE_HF_TRANSFER=1
+# 加速:开 Xet 高性能后端(huggingface_hub 1.x 默认走 Xet;hf_xet 已随包捆绑)
+# 注:HF_HUB_ENABLE_HF_TRANSFER 已废弃(FutureWarning),不要再用
+export HF_XET_HIGH_PERFORMANCE=1
 
 # token 校验 — 没 token 会限速到 ~0.3MB/s,28GB 要下 26 小时
 if [ -z "$HF_TOKEN" ]; then
@@ -64,8 +65,8 @@ if [ -z "$HF_TOKEN" ]; then
     exit 1
 fi
 
-# 装 hf_transfer(若未装,首次跑需要),`hf` 命令在新版 huggingface_hub 自带
-pip install -U "huggingface_hub[hf_transfer]" 2>&1 | tee -a "$LOG"
+# 确保 huggingface_hub 1.x(自带 `hf` 命令 + hf_xet Xet 后端);不要再装 [hf_transfer] extra
+pip install -U huggingface_hub 2>&1 | tee -a "$LOG"
 ```
 
 **强制**:每次 `hf download` 前都必须 export 上面 4 个 + 显式 `--token "$HF_TOKEN"`。
@@ -82,7 +83,7 @@ BG_SHELLS=$(jq -c '.fetch_state.bg_shells // []' "$WORKSPACE/state.json")
 **如果 state.fetch_state.bg_shells 非空**:
 - 用 BashOutput(shell_id) 看是否还活着(CC 的 shell_id 是 session 内句柄,session 重启后失效;此时用 `ps -p $PID` 或 `kill -0 $PID` 看 OS 进程是否还在)
 - 进程活着 + 文件还在长 → 直接跳到第 3 步 poll
-- 进程死了 + 文件未完 → 第 2 步用 `--resume-download` 重启
+- 进程死了 + 文件未完 → 第 2 步重启(`hf download` 默认断点续传,不需要也没有 `--resume-download`)
 - 进程死了 + 文件已完 → 标 done,看下一个 repo
 
 **如果 state.fetch_state 空 OR weights_pending 全空**:
@@ -97,16 +98,22 @@ REPO="<repo>"
 DEST="$WORKSPACE/.cache/hf_models/$REPO"
 mkdir -p "$DEST"
 
+# 🔴 并发防护(P2-6):同一 repo 已有 hf download 在跑就**不**再起新进程
+# (实测:LLM 见下载慢就"重试"起 3 个进程写同一 --local-dir,锁竞争 → 0 MB/s)
+if pgrep -f "hf download.*$REPO" >/dev/null 2>&1; then
+    echo "WARN: $REPO 已有 hf download 在跑,跳过重启(防并发锁竞争)。要重启先 pkill -f 'hf download.*$REPO'" | tee -a "$LOG"
+else
 # 用 setsid + nohup 双重保险脱离 parent process group
 setsid nohup bash -c "
-  export HF_HUB_ENABLE_HF_TRANSFER=1
+  export HF_XET_HIGH_PERFORMANCE=1
   echo '==== fetching $REPO at \$(date -Iseconds) ====' >> '$WORKSPACE/logs/fetch_weights.log'
+  # 新版 hf download 默认断点续传(--resume-download 在 huggingface_hub 1.x 已移除)
   hf download '$REPO' \
       --local-dir '$DEST' \
-      --token '$HF_TOKEN' \
-      --resume-download 2>&1
+      --token '$HF_TOKEN' 2>&1
 " >> "$WORKSPACE/logs/fetch_weights.log" 2>&1 &
 PID=$!
+fi
 echo $PID > "$WORKSPACE/.cache/$(basename $REPO).pid"
 echo "Started $REPO as PID=$PID" | tee -a "$LOG"
 ```
@@ -162,8 +169,8 @@ tail -30 "$WORKSPACE/logs/fetch_weights.log"
 
 如果 `.incomplete` 30min 无增长 + log 30min 无新输出:
 - KillBash(shell_id) 杀 bg
-- `rm "$WORKSPACE/.cache/hf_models/<repo>"/*.incomplete` 删坏的临时文件(huggingface-cli resume 会重建)
-- 第 2 步重启(同 repo,带 `--resume-download`,会从已 cache 的文件接着下)
+- `rm "$WORKSPACE/.cache/hf_models/<repo>"/*.incomplete` 删坏的临时文件(`hf download` resume 会重建)
+- 第 2 步重启(同 repo,`hf download` 默认断点续传,从已 cache 的文件接着下;无 `--resume-download` flag)
 - 重启 max 2 次,仍卡 → `blocked.append("download_stuck:" + repo)` 调 request-human-intervention
 
 ## 第 5 步:时间预算判定(跨 cron 接续核心)
@@ -278,7 +285,19 @@ echo "=== PHASE_END   phase=fetch-weights slug=$SLUG status=done ts=$(date -Isec
 ## 反模式总结
 
 - ❌ 不要用 `Bash(timeout=600)` 跑下载 — 长任务必须 background
-- ❌ 不要 `rm -rf .cache` — 用 `--resume-download` 继续
+- ❌ 不要 `rm -rf .cache` — `hf download` 默认断点续传,重跑即继续
+- ❌ **不要并发起多个 `hf download` 写同一 `--local-dir`**(P2-6 实测:3 进程锁竞争 → 0 MB/s)— 起新进程前先 `pgrep -f "hf download.*<repo>"`,有就别起
+- ❌ **不要加 `--resume-download`**(huggingface_hub 1.x 已移除该 flag,加了直接报错)— 默认就续传
+- ❌ **不要用 `HF_HUB_ENABLE_HF_TRANSFER=1`**(已废弃 FutureWarning)— 用 `HF_XET_HIGH_PERFORMANCE=1`
+
+## ChangeLog
+
+- **2026-06-02** — 对齐 huggingface_hub 1.x + 并发下载硬防护
+  - 变更类型: 硬约束 + 反模式
+  - 影响范围: 硬规则 4 / 第 0 步 export + pip / 第 2 步 setsid 下载块 / 第 1 步接续 / 第 4 步重启 / 反模式段
+  - 动机: `--resume-download` 在 1.x 报错、`HF_HUB_ENABLE_HF_TRANSFER` FutureWarning、3 进程并发写同 dir 锁竞争 0 MB/s(P2-4/P2-9/P2-6)
+  - 证据: [fixes/2026-06-02-fetch-weights-hf1.x-modernization-fix.md](../../../docs/superpowers/fixes/2026-06-02-fetch-weights-hf1.x-modernization-fix.md) + [fixes/2026-06-02-concurrent-download-zombie-guard-fix.md](../../../docs/superpowers/fixes/2026-06-02-concurrent-download-zombie-guard-fix.md)
+  - 规则: `hf download` 默认续传(无 `--resume-download`);加速用 `HF_XET_HIGH_PERFORMANCE=1`;起新下载前 `pgrep -f "hf download.*<repo>"`
 - ❌ 不要 wait 一个 bg shell — poll
 - ❌ 不要不 export `HF_HOME` 等就跑下载 — 会污染 ~/.cache/huggingface
 - ❌ 不要在 cron 快到时间但还在下时 kill 进程 — 让它后台继续
