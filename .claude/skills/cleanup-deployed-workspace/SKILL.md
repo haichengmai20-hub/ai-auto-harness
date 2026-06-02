@@ -149,11 +149,12 @@ fi
 
 **白名单 targets**(写死,**严禁** LLM 临时增减):
 ```
-venv .cache hf_cache repo
+venv .cache hf_cache repo weights
 ```
 
 注:
 - `.cache` 和 `hf_cache` 都列入是因为不同 launch_worker 版本环境变量(`HF_HOME` / `PIP_CACHE_DIR`)落点可能不同。两个都尝试,不存在的标 NOT EXIST 跳过。
+- `weights` 列入是因为 fetch-weights 阶段下载的模型权重通常放在 `workspace/<slug>/weights/` 或 `workspace/<slug>/repo/weights/`,这是可重建产物(可重新 `hf download`)。
 - `runs/<run-id>/.cache/`(本 run 的 launch_worker isolated cache)由**第 2.5 步**独立处理 — **只清本 run 的**,不递归清其他 run 的 cache(R1 隔离)。
 
 ```bash
@@ -162,8 +163,8 @@ REMOVED=()
 WOULD_REMOVE=()           # dry_run 模式累计
 SKIPPED_NOT_EXIST=()
 
-# 白名单(只清这 4 个目录,严禁改)
-TARGETS=(venv .cache hf_cache repo)
+# 白名单(只清这 5 个目录,严禁改)
+TARGETS=(venv .cache hf_cache repo weights)
 
 for target in "${TARGETS[@]}"; do
     TARGET_PATH="$WORKSPACE/$target"
@@ -360,7 +361,7 @@ echo "=== PHASE_END   phase=cleanup slug=$SLUG status=${SKIPPED:+skipped}${SKIPP
 ```json
 {
   "slug": "song-generation",
-  "removed": ["venv", ".cache", "hf_cache", "repo"],
+  "removed": ["venv", ".cache", "hf_cache", "repo", "weights"],
   "skipped_not_exist": [],
   "kept": ["state.json", "results", "logs", "output"],
   "freed_bytes": 48567890123,
@@ -424,7 +425,7 @@ dry_run case(注意字段名是 `would_remove`,不是 `removed`):
 ## 🔴 反模式(L1 实测出现过的真实问题,**严禁重演**)
 
 - ❌ **绝不**用 `rm -rf $WORKSPACE/$VAR/*` 或 `rm -rf "$WORKSPACE"/*`(变量空就清根)— 必须显式枚举 `for target in venv .cache hf_cache repo`
-- ❌ **绝不**临时增减白名单 targets — 写死 `venv .cache hf_cache repo` 这 4 个,新增需要改 SKILL.md
+- ❌ **绝不**临时增减白名单 targets — 写死 `venv .cache hf_cache repo weights` 这 5 个,新增需要改 SKILL.md
 - ❌ **绝不**清 G1-G4 任一不过的 workspace — return skipped
 - ❌ **绝不**删 PRESERVE 清单内的项(state.json / results / logs / output / progress.md)
 - ❌ **绝不**触动其他 workspace(R1 隔离)— `$WORKSPACE` 必须以 `/root/ai-auto-harness/workspace/` 起头
@@ -471,3 +472,11 @@ dry_run case(注意字段名是 `would_remove`,不是 `removed`):
 - state.json 不更新(dry_run 模式)
 - 磁盘大小不变
 - return `dry_run: true, freed_bytes: ~16GB(estimated)`
+
+## ChangeLog
+
+- **2026-06-02** — 白名单 targets `venv .cache hf_cache repo` → 加 `weights`(4→5)
+  - 变更类型: 硬约束(白名单枚举)
+  - 影响范围: 白名单 targets 段 / TARGETS 数组 / return schema 示例 / 反模式段
+  - 动机: omnivoice cleanup 留下 `weights/` 3.1GB 可重建产物未清(P7-1/问题13)
+  - 证据: [fixes/2026-06-02-runbook-cleanup-artifact-accuracy-fix.md](../../../docs/superpowers/fixes/2026-06-02-runbook-cleanup-artifact-accuracy-fix.md)

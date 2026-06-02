@@ -134,6 +134,19 @@ audio_output_sec: <from verify.json.evidence.audio_info.duration_seconds,若有>
 | 任何 | no(卡在 fetch/install/run 某 stage) | `paused_at_<phase>` |
 | - | 任一资源 preflight 拒(GPU/磁盘) | `blocked_<reason>` |
 
+**`total_cost_usd` 填写规则**(Fix #22: 交互式 session 无 cost 数据):
+- 优先从 `runs/$RUN_ID/harness.stdout.ndjson` 的 `result` 事件取 `total_cost_usd`
+- 若 ndjson 不存在(交互式 session),从 `runs/$RUN_ID/trajectory.json` 的 result 事件取
+- 若两者都没有(纯交互式 session 无 cost 追踪),**写 `null`**(不是 0.0) — 0.0 暗示"免费"而实际是"数据不可用"
+- **严禁**写 `0.0` 表示"数据不可用" — `0.0` 只在确实 $0 成本时使用
+
+**`duration_min` 填写规则**(Fix: duration 预估严重不准):
+- 优先从 `state.json.started_at` 和 `state.json.updated_at` 计算实际耗时(分钟)
+- 若 `started_at` 不存在,从 `runs/$RUN_ID/meta.json.started_at` 取
+- 若 `updated_at` 不存在,用当前时间减 `started_at`
+- **严禁**写 AI prompt 节里的"预计耗时"(那是给复用者的预估,不是本次实际耗时)
+- 实际耗时和 AI prompt 里的"预计耗时"是两个不同概念,不要混淆
+
 ### 第 3 步:生成 5 stage 指令(LLM 抽取,套模板)
 
 读 5 个 phase 的 log + results,转成 stage 指令。每 stage 必须含:
@@ -314,3 +327,12 @@ echo "=== PHASE_END   phase=runbook slug=$SLUG status=done ts=$(date -Iseconds) 
 - ❌ "intake / fetch 都没踩坑,我可以不写这两个 stage" — **不**.每个 stage 都要有命令 + 成功标志,即使没踩坑
 - ❌ "我看 verify_passed=true,fixes.log 里有的修复应该不重要" — **不**.该项目下次跑同样会撞那些坑,必须列
 - ❌ "trace 里看到的命令是 `huggingface-cli`,我就如实记录" — **不**.runbook 是给后人执行的脚本,留 deprecated 命令等于继承错误。**事实优先级**:R 规则 > trace 实录
+
+## ChangeLog
+
+- **2026-06-02** — frontmatter `total_cost_usd` / `duration_min` 填写规则
+  - 变更类型: schema 约束
+  - 影响范围: 第 2 步 frontmatter 填写规则段
+  - 动机: hunyuan3d-2 runbook 写 `total_cost_usd: 0.0`(误导成免费)+ `duration_min: 1469`(混用预估值,P6-1/P6-3)
+  - 证据: [fixes/2026-06-02-runbook-cleanup-artifact-accuracy-fix.md](../../../docs/superpowers/fixes/2026-06-02-runbook-cleanup-artifact-accuracy-fix.md)
+  - 规则: cost 取不到写 `null` 不写 `0.0`;duration 唯一来源 `state.json` 时间戳,严禁用 AI prompt 节"预计耗时"
