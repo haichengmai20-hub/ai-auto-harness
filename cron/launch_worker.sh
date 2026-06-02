@@ -54,6 +54,11 @@ mkdir -p "$LOG_DIR"
 # ============ run-id 注册 + hook_state 初始化(R1/R4 hook 用)============
 RUN_ID=$(basename "$LOG_DIR")
 echo "$RUN_ID" > "$HARNESS_ROOT/runs/.current_run_id"
+# 🔴 导出给 claude-haha → SessionStart/PostToolUse hook 子进程继承,作为权威 run-id。
+# SessionStart hook 会复用它(而非自造新 id 覆盖 .current_run_id),
+# 否则 hook 把 transcript/纪律计数写进孤儿目录,本 run 目录永远 0 计数。
+# (Fix: 2026-06-02-hook-runid-clobber-fix)
+export AI_HARNESS_RUN_ID="$RUN_ID"
 python3 - "$LOG_DIR/.hook_state.json" "$SLUG" <<'PYEOF'
 import json, sys, time
 state_path, slug = sys.argv[1], sys.argv[2]
@@ -140,6 +145,44 @@ if cleaned:
             f.write(c + "\n")
 PYEOF
 
+# ============ 僵尸/孤儿 hf 进程审计(P2-11)============
+# 用户报 17 个 <defunct> hf 进程从 May21 残留。
+# 🔴 保守边界(守 R1 + R-HO-1):
+#   - 真僵尸(state Z 且 PPID==1,父已死)→ 已被 init 自动收割,这里只**记录**计数
+#   - 活着的 `hf download`(含 setsid nohup PPID==1 的)→ **绝不杀**:那是 fetch-weights
+#     合法的跨 cron 接续设计(R4.4),也可能是用户/别的 run 的下载
+#   - 只清「上面 dead-worker 清理段已确认死亡的 worker 名下、且在其 .cache/*.pid 里的」进程
+#     (该逻辑已在上一个 python 块完成)。本块**只报告**,给人决策,不做破坏性 kill。
+python3 - <<'PYEOF' >> "/root/ai-auto-harness/runs/.last_cleanup.log" 2>&1 || true
+import subprocess, time
+try:
+    out = subprocess.run(["ps", "-eo", "pid,ppid,stat,etimes,args"],
+                         capture_output=True, text=True, timeout=10).stdout
+except Exception:
+    out = ""
+zombie_hf = []        # 真僵尸 hf
+orphan_live_hf = []   # 活的 PPID==1 hf download(legit setsid resume，只报告不杀)
+for ln in out.splitlines()[1:]:
+    parts = ln.split(None, 4)
+    if len(parts) < 5:
+        continue
+    pid, ppid, stat, etimes, args = parts
+    if "hf download" not in args and not (args.startswith("hf ") or "/hf " in args):
+        continue
+    if stat.startswith("Z"):
+        zombie_hf.append((pid, ppid, etimes))
+    elif ppid == "1":
+        orphan_live_hf.append((pid, etimes, args[:80]))
+if zombie_hf or orphan_live_hf:
+    print(f"--- hf process audit {time.strftime('%Y-%m-%dT%H:%M:%S')} ---")
+    if zombie_hf:
+        print(f"  defunct(Z) hf x{len(zombie_hf)}: {zombie_hf[:10]} (init 会自动收割,无需手动)")
+    if orphan_live_hf:
+        print(f"  live PPID=1 hf download x{len(orphan_live_hf)}(可能是合法跨 cron 接续,**未杀**,人工核实):")
+        for p in orphan_live_hf[:10]:
+            print(f"    pid={p[0]} etimes={p[1]}s {p[2]}")
+PYEOF
+
 # ============ trap: worker 退出时清理 bg 子进程 ============
 WORKER_PID_FILE="$LOG_DIR/worker.pid"
 echo "$$" > "$WORKER_PID_FILE"
@@ -185,6 +228,7 @@ PROMPT_EOF
 
 CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
 IS_SANDBOX=1 \
+AI_HARNESS_RUN_ID="$RUN_ID" \
 HF_HOME="$HF_HOME" \
 HF_HUB_CACHE="$HF_HUB_CACHE" \
 TRANSFORMERS_CACHE="$TRANSFORMERS_CACHE" \
@@ -239,6 +283,12 @@ for line in nd.read_text().splitlines() if nd.exists() else []:
 out.write_text(json.dumps(events, ensure_ascii=False, indent=2))
 print(f'trajectory.json: {len(events)} events written')
 " 2>>"$LOG_DIR/harness.stderr.log" || true
+
+# 事后纪律审计(R9/R4/R1)— 解析 ndjson 产 discipline-report.json。
+# 与 PostToolUse hook 互补:hook 是 mid-run advisory,这里是 worker 退出后的兜底审计。
+# (Fix: 2026-06-02-hook-runid-clobber-fix)
+bash "$HARNESS_ROOT/scripts/validate-run-discipline.sh" "$LOG_DIR/harness.stdout.ndjson" "$SLUG" \
+    >> "$LOG_DIR/meta.json.discipline" 2>&1 || true
 
 # trap cleanup 会写 cron.status
 exit $RET

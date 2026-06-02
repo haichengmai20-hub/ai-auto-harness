@@ -165,11 +165,14 @@ phase 开始时记 `started_at`,每次 poll 前 `$(date +%s) - $(date -d "$start
 - ❌ 并行多个 `pip install` 写同一 venv → site-packages 损坏
 - ✅ 串行 + foreground + `tee -a $LOG`
 
-### R7. huggingface-cli 已废弃,统一用 `hf`
+### R7. huggingface-cli 已废弃,统一用 `hf`(+ Xet 加速,无 `--resume-download`)
 
 - ❌ `huggingface-cli download <repo>`(已 deprecated,有 warning)
-- ✅ `hf download <repo> --local-dir <path> --token "$HF_TOKEN"`
-- 若环境只有老 `huggingface-cli`,先 `pip install -U huggingface_hub`(已自带 `hf` 命令)
+- ❌ `--resume-download` flag(huggingface_hub 1.x 已移除,加了直接报错)— `hf download` **默认断点续传**
+- ❌ `HF_HUB_ENABLE_HF_TRANSFER=1`(已废弃 FutureWarning)— 用 `HF_XET_HIGH_PERFORMANCE=1`(Xet 后端,1.x 默认,`hf_xet` 随包捆绑)
+- ❌ 并发起多个 `hf download` 写同一 `--local-dir`(锁竞争 → 0 MB/s)— 起前先 `pgrep -f "hf download.*<repo>"`
+- ✅ `HF_XET_HIGH_PERFORMANCE=1 hf download <repo> --local-dir <path> --token "$HF_TOKEN"`
+- 若环境只有老 `huggingface-cli`,先 `pip install -U huggingface_hub`(已自带 `hf` 命令 + `hf_xet`)
 
 ### R8. Phase 标记 — 每个 SubAgent 进出都必须 echo 一行可 grep 标记
 
@@ -197,6 +200,19 @@ echo "=== PHASE_END   phase=<phase> slug=<slug> status=<done|paused|blocked> ts=
 ## ChangeLog
 
 > 本节回填 R1-R9 的引入来源。每条 R 规则都对应一个 fix.md(架构改善事实链)。规则见 [docs/superpowers/specs/2026-05-27-spec-plan-governance.md](../docs/superpowers/specs/2026-05-27-spec-plan-governance.md) §3.3。
+
+- **2026-06-02** — R7 对齐 huggingface_hub 1.x(去 `--resume-download` / Xet / 并发防护)
+  - 变更类型: 规则(R7 扩充)
+  - 影响范围: R7 段 + `fetch-weights/SKILL.md` + `fetch-agent.md` + `auto-deploy/SKILL.md` + `README.md`
+  - 动机: 1.x 移除 `--resume-download`、`HF_HUB_ENABLE_HF_TRANSFER` 被 Xet 取代(FutureWarning)、并发 `hf download` 锁竞争 0 MB/s
+  - 证据: [docs/superpowers/fixes/2026-06-02-fetch-weights-hf1.x-modernization-fix.md](../docs/superpowers/fixes/2026-06-02-fetch-weights-hf1.x-modernization-fix.md)
+
+- **2026-06-02** — 修复 hook 执行链 run-id 所有权(R1/R4/R6/R9 实时约束失效真因)
+  - 变更类型: 约束(执行链修复)
+  - 影响范围: `.claude/hooks/{session-start,post-tool-use}.sh` + `cron/launch_worker.sh` + 新增 `scripts/validate-run-discipline.sh`
+  - 动机: SessionStart hook 覆盖 launch_worker 的 `.current_run_id`,致 PostToolUse 把 transcript/计数写进孤儿目录,本 run 目录恒 0 计数 → R1/R4/R6/R9 自上线起从未在正确目录生效
+  - 证据: [docs/superpowers/fixes/2026-06-02-hook-runid-clobber-fix.md](../docs/superpowers/fixes/2026-06-02-hook-runid-clobber-fix.md)
+  - 验证: ✅ launch_worker 端到端实测 transcript 落正确目录 + own_slug 正确 + 纪律审计器复现 ControlFoley 43Bash/0Task
 
 - **2026-05-27** — 立 ChangeLog 章节
   - 变更类型: 结构

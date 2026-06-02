@@ -11,7 +11,10 @@
 
 set -u
 HARNESS_ROOT="/root/ai-auto-harness"
-RUN_ID=$(cat "$HARNESS_ROOT/runs/.current_run_id" 2>/dev/null || echo "unknown")
+# run-id 解析:$AI_HARNESS_RUN_ID(launch_worker 注入)优先于 .current_run_id。
+# 防 SessionStart hook 覆盖 .current_run_id 导致 transcript/计数写错目录。
+# (Fix: 2026-06-02-hook-runid-clobber-fix)
+RUN_ID="${AI_HARNESS_RUN_ID:-$(cat "$HARNESS_ROOT/runs/.current_run_id" 2>/dev/null || echo "unknown")}"
 RUN_DIR="$HARNESS_ROOT/runs/$RUN_ID"
 mkdir -p "$RUN_DIR"
 
