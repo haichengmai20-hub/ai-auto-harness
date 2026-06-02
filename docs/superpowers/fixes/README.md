@@ -31,15 +31,19 @@
 | 23 | [2026-05-29-poll-count-accumulate-cross-phase-fix](2026-05-29-poll-count-accumulate-cross-phase-fix.md) | P2 | ❌ 未落地 | poll_count 跨阶段累加超限 |
 | 24 | [2026-05-29-completed-at-literal-not-evaluated-fix](2026-05-29-completed-at-literal-not-evaluated-fix.md) | P2 | ❌ 未落地 | completed_at 字段是未求值的 shell 字面量 |
 | 25 | [2026-05-29-g2-trace-format-flexible-fix](2026-05-29-g2-trace-format-flexible-fix.md) | P1 | ✅ 已闭环 | G2 trace 检查只认 ndjson,交互式 session 产 jsonl 被误拒 |
+| 26 | [2026-06-02-hook-runid-clobber-fix](2026-06-02-hook-runid-clobber-fix.md) | **P0** | ✅ 已闭环 | **SessionStart 覆盖 run-id → hook 写孤儿目录,R1/R4/R6/R9 实时约束自上线起从未在正确目录生效**(ControlFoley e2e) |
+| 27 | [2026-06-02-fetch-weights-hf1.x-modernization-fix](2026-06-02-fetch-weights-hf1.x-modernization-fix.md) | P1 | ✅ 已闭环 | hf 1.x:去 `--resume-download`(已移除)+ `HF_HUB_ENABLE_HF_TRANSFER`→Xet |
+| 28 | [2026-06-02-concurrent-download-zombie-guard-fix](2026-06-02-concurrent-download-zombie-guard-fix.md) | P1 | ✅ 已闭环 | 并发 hf download 锁竞争(0 MB/s)加 pgrep 防护 + 僵尸 hf 保守审计 |
+| 29 | [2026-06-02-runbook-cleanup-artifact-accuracy-fix](2026-06-02-runbook-cleanup-artifact-accuracy-fix.md) | P2 | ✅ 已闭环 | runbook cost=0.0/duration 失真 + cleanup weights 白名单泄漏 |
 
 ## 统计
 
-- 总计:25 条
-- ✅ 已闭环:15 条
+- 总计:29 条
+- ✅ 已闭环:19 条
 - ❌ 未落地:10 条
-- P0:2 条(均为未落地)
-- P1:18 条(15 已闭环 + 3 未落地)
-- P2:5 条(2 已闭环 + 3 未落地)
+- P0:3 条(2 未落地 + 1 已闭环 [#26])
+- P1:20 条(17 已闭环 + 3 未落地)
+- P2:6 条(3 已闭环 + 3 未落地)
 
 ## 按项目分组
 

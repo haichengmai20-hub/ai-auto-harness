@@ -16,13 +16,13 @@
 
 ## 📍 当前状态（活索引 — 每次工作后更新此节）
 
-- **最后更新**：2026-05-27（verify.json schema 强化）
+- **最后更新**：2026-06-02（ControlFoley e2e retro:P0 hook run-id 修复 + P2 fetch hf 1.x 现代化）
 - **版本**：v1.1（Phase 5 进行中）
-- **一句话**：Phase −1~4 平台全部 ✅;Phase 5(runbook+cleanup)实现 + L1 测试 ✅;verify SKILL schema 强化 + validate-verify.sh ✅;主流程串联(Task 5-13)⬜ pending
-- **真实战绩**：3 个项目跑通（SongGeneration / OmniVoice / Hunyuan3D-2）
-- **git**：本地 main 领先 upstream 19 commits，**未 push**
-- **工作树**：干净（仅 `2026-05-26-roledrop-judge-pilot.md` 故意留 untracked，属外来工作线，不入本库）
-- **下一步候选**：① 修 verify.json `passed=null`(Task 5-7 前置) ② Phase 5 Task 5-7 主流程串联(Phase 5 主 work) ③ push 到 Gitea(19 commits 未推) ④ Task 8 小项目 e2e
+- **一句话**：Phase −1~4 平台全部 ✅;Phase 5(runbook+cleanup)实现 + L1 测试 + T5-T7 主流程串联 ✅;**P0 hook 真因修复**(SessionStart 覆盖 run-id 致 R1/R4/R6/R9 实时约束自上线起失效,已修 + 加事后纪律审计器)✅;P2 fetch hf 1.x 现代化 ✅
+- **真实战绩**：3 个项目跑通（SongGeneration / OmniVoice / Hunyuan3D-2）;ControlFoley e2e 全流程跑通并产出 19 条 retro
+- **git**：本地 main 领先 upstream,**未 push**
+- **工作树**：本任务相关已 commit;遗留无关改动 `src/utils/model/*` + `monitor-ride-along/` skill 属外来工作线(非本任务,未动)
+- **下一步候选**：① 端到端重跑 e2e 验证 hook 落点 + discipline-report(P0 修复实战确认) ② P1 MCP scan 真调用改造(跨 ai-daily-scan 仓库) ③ P9 架构级状态机/非法转换检测 ④ push 到 Gitea ⑤ 清理历史孤儿 `runs/<时间戳-pid>/` 目录
 
 ---
 
@@ -54,10 +54,15 @@
 
 ### Fix 索引(架构改善事实链)
 
-> 完整 fix 目录见 [fixes/README.md](../fixes/README.md)。每条 fix 含部署项目 + run_id 来源,可精确追溯。
+> 完整 fix 目录见 [fixes/README.md](../fixes/README.md)（共 29 条）。每条 fix 含部署项目 + run_id 来源,可精确追溯。
+> 注:2026-05-29 一批 fix(#15–#25)见 fixes/README.md,本表只列里程碑级;2026-06-02 ControlFoley e2e retro 4 条已补入下表顶部。
 
 | 日期 | Fix | 部署项目 | 影响 | commit | 状态 |
 |---|---|---|---|---|---|
+| 2026-06-02 | [hook-runid-clobber-fix](../fixes/2026-06-02-hook-runid-clobber-fix.md) **P0** | controlfoley | SessionStart 覆盖 run-id → hook 写孤儿目录(R1/R4/R6/R9 失效真因)+ `validate-run-discipline.sh` | `3bb1280` | ✅ 已闭环 |
+| 2026-06-02 | [fetch-weights-hf1.x-modernization-fix](../fixes/2026-06-02-fetch-weights-hf1.x-modernization-fix.md) | controlfoley | 去 `--resume-download` + `HF_HUB_ENABLE_HF_TRANSFER`→Xet | `b0a97bf` | ✅ 已闭环 |
+| 2026-06-02 | [concurrent-download-zombie-guard-fix](../fixes/2026-06-02-concurrent-download-zombie-guard-fix.md) | controlfoley | 并发 hf download 防护 + 僵尸 hf 保守审计 | `b0a97bf` | ✅ 已闭环 |
+| 2026-06-02 | [runbook-cleanup-artifact-accuracy-fix](../fixes/2026-06-02-runbook-cleanup-artifact-accuracy-fix.md) | hunyuan3d-2 + omnivoice | runbook cost=null/duration + cleanup weights 白名单 | (P6/P7 收尾) | ✅ 已闭环 |
 | 2026-05-27 | [verify-schema-enforcement-fix](../fixes/2026-05-27-verify-schema-enforcement-fix.md) | hunyuan3d-2 + omnivoice + song-generation-run2 | `verify/SKILL.md` + `scripts/validate-verify.sh` | (本 session) | ✅ 已闭环 |
 | 2026-05-26 | [phase5-l1-retro-15-fixes](../fixes/2026-05-26-phase5-l1-retro-15-fixes.md) | song-generation-run2 (L1 test) | runbook+cleanup 两 SKILL + 2 validate 脚本 | `42bdc5c` | ✅ 已闭环(14/15) |
 | 2026-05-26 | [runs-cache-cleanup-decision-fix](../fixes/2026-05-26-runs-cache-cleanup-decision-fix.md) | song-generation(run2)+ song-generation | `cleanup/SKILL.md` 第 2.5 步 | `42bdc5c` | ✅ 已闭环 |
