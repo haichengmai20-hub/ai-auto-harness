@@ -16,6 +16,17 @@
 
 ---
 
+
+---
+
+## 人话版
+
+**一句话**：第三阶段——验证对不对、出报告、修不好就找人。
+
+**打比方**：像质检→出货→退货三步：验证产品合格→写质检报告→实在修不好就上交给领导。
+
+**5 个 skill**：verify（验证）/ api-skeleton（太大走 API 骨架）/ write-recommendation（写建议）/ auto-recover（自动接续）/ request-human-intervention（找人帮忙）
+
 ## Files
 
 - Create: `/root/ai-auto-harness/.claude/agents/verify-agent.md`

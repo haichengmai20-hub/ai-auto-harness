@@ -1262,7 +1262,20 @@ find runs/ -maxdepth 1 -mtime +7 -exec rm -rf {} \;
 
 ## 14. 迁移路径
 
-### Phase 0(前置)— ai-daily-scan 接入
+### 人话版
+
+**一句话**：项目最初始的设计文档——"让 AI 自动部署开源 AI 项目"的整体构想。
+
+**打比方**：像建筑的概念图，画了"要盖一座自动化工厂"，但还没细化到每层楼有几个房间。
+
+**核心构想**：
+- 目标：每天自动选一个开源 AI 项目，部署到 GPU 机器上，输出能不能用的报告
+- 架构：cron 定时触发 → 主 agent 协调 → 5 个 SubAgent 各干一个阶段
+- 输出：run.json + verify.json + transcript + decisions.md
+
+---
+
+## Phase 0(前置)— ai-daily-scan 接入
 
 - 加 `mcp_server.py` + `findings_writer.py` + `outcomes_reader.py`
 - AnalystReport schema 加 4 字段 (next_action / gated_repos / estimated_params_b / estimated_weight_size_gb)

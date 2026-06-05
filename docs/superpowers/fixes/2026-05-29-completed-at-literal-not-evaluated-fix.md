@@ -10,6 +10,18 @@
 
 ---
 
+## 人话版
+
+**一句话**：completed_at 字段写的是 `$(date -Iseconds)` 这个字符串本身，而不是实际时间。
+
+**打比方**：像表格里该填"2026-06-02 10:30"的地方，你填了"=NOW()"这个公式文本，Excel 不会帮你算。
+
+**现在怎样**：SubAgent 写 JSON 时用了单引号或 heredoc，`$(date -Iseconds)` 没被 shell 展开，原样写进了 JSON。
+
+**要做什么**：用双引号让 shell 展开，或用 `jq --arg ts "$(date -Iseconds)" '.completed_at = $ts'`。统一所有 SKILL.md 的落盘步骤。
+
+---
+
 ## 部署项目来源
 
 | 字段 | 值 |

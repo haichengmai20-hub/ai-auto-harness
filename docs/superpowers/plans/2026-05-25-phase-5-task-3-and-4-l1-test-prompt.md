@@ -10,6 +10,15 @@
 
 你将完成 ai-auto-harness 项目 Phase 5（runbook + cleanup）实施 plan 中的 **Task 3** 和 **Task 4** 两个独立测试。两个 task 之间没有依赖（Task 4 不需要 Task 3 真产出 runbook 才能跑），你可以串行或并行执行。
 
+
+---
+
+## 人话版
+
+**一句话**：Phase 5 的 L1 测试 prompt——复制给另一个 AI 跑，看 runbook 和 cleanup 两个 skill 合不合格。
+
+**打比方**：像出厂质检单，复制给质检员按单子逐项检查，不通过就退回重做。
+
 ## 第 0 步：建立背景认知（必读）
 
 按顺序读以下文件，理解项目和本轮要测的内容：

@@ -119,6 +119,20 @@ docs/superpowers/fixes/
 - **状态**: 进行中 / 已闭环 / 已废弃
 - **负责人 / session**: <人/AI session 标识>
 
+## 人话版
+
+**一句话**：定规则"架构改善怎么记录"——先写 fix.md 再改 spec/SKILL，不许跳过 fix 直接改规则。
+
+**打比方**：像医院先写病历再改处方，不能凭感觉改药不留记录。
+
+**核心规则**：
+- 触发条件：改 SKILL.md 约束 / 改 spec / 改 CLAUDE.md 硬规则 / 出现第 3 次同类问题
+- 模板 8 段：元信息 / 项目来源 / 症状 / 根因 / 方案 / 落地 / 验证 / 关联
+- 闭环流程：写 fix → 改规则 → 加 ChangeLog → 验证 → 回填 fix 状态 → commit
+- 与 workspace/fixes.log 的边界：fix.md 是跨项目通用经验，fixes.log 是单次 run 的流水账
+
+---
+
 ## 部署项目来源(必填,精确到 run)
 
 - **部署项目 slug**: <song-generation-run2 / hunyuan3d-2 / omnivoice / N/A 仅平台讨论>

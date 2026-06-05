@@ -12,6 +12,17 @@
 
 你正在测试 `/root/ai-auto-harness/.claude/skills/cleanup-deployed-workspace/SKILL.md` 的 4 道防护是否真能拦住误调用。**不真删任何文件**(全程 `dry_run: true`),只看 `skipped` + `skipped_reason` 字段是否正确。
 
+
+---
+
+## 人话版
+
+**一句话**：故意触发 cleanup 的防护规则，看它能不能拦住误操作（删错东西、越权清理等）。
+
+**打比方**：像消防演习——故意拉警报，看喷淋系统是不是真会喷水。
+
+**4 个测试**：G1 不删 workspace 外的东西 / G2 不删 weights 和 outputs / G3 dry_run 模式 / G4 不清别人的项目
+
 ## 第 0 步:读 SKILL 理解 4 道防护(必读)
 
 ```bash

@@ -6,7 +6,7 @@
 
 **Goal:** 实施 ai-auto-harness 平台 — 基于 Claude Code 源码 + 自定义 skill,把 AI 项目信号发现 → 自动 GitHub clone → HF 权重拉取 → 装环境 → 跑 → 验证 → 公司视角建议这一长链路做成 cron-driven、可观测、可接续的 daemon
 
-**Architecture:** ai-daily-scan(Python)通过 MCP 接入 → Claude Code 主 agent(`/auto-daily`)→ 5 阶段 SubAgent 流水线(intake / fetch-weights / install-env / run-and-repair / verify)→ 生成报告 + MCP 回填 outcomes。Runtime data 落盘 `workspace/` + `runs/` + `memory/` + `pending_human/`,跨 cron 周期靠 `state.json` 接续
+**Architecture:** ai-daily-scan(Python)通过 MCP 接入 → Claude Code 主 agent(`/auto-daily`)→ 7 阶段 SubAgent 流水线(intake / fetch-weights / install-env / run-and-repair / verify / runbook / cleanup)→ 生成报告 + MCP 回填 outcomes。Runtime data 落盘 `workspace/` + `runs/` + `memory/` + `pending_human/`,跨 cron 周期靠 `state.json` 接续
 
 **Tech Stack:** TypeScript/Bun (CC harness, 不动 src/), Python (ai-daily-scan + MCP server), bash (hooks / cron / 实验), MCP protocol via stdio, Claude Code agent loop (`async function* while(true)`)
 
@@ -15,6 +15,17 @@
 **预期总工时**:Phase -1 半天 / Phase 0 一天 / Phase 1 一天 / Phase 2 两天 / Phase 3 一天 / Phase 4 半天 = **约 6 个工作日**
 
 ---
+
+
+---
+
+## 人话版
+
+**一句话**：项目最原始的完整实施计划——从零到一的每一步怎么干，现在只当参考看，实际执行走 Master Plan 的分阶段 plan。
+
+**打比方**：像造楼的总施工图，一整张大纸画完所有工序。后来发现太大了拆成 7 张小图（Phase -1 到 Phase 5），这张总图留着当参考。
+
+**注意**：不要一口气执行这个文件，按 Master Plan 里列的分阶段 plan 逐个跑。
 
 ## 文件清单(整体)
 
@@ -3618,7 +3629,8 @@ cd /root/ai-auto-harness
 
 ```bash
 cat /root/ai-auto-harness/workspace/song-generation/state.json | jq '.phase, .phases_done'
-# 期望: phase = "done", phases_done = ["intake","fetching","installing","running","verifying"]
+# 期望: phase = "archived", phases_done = ["intake","fetch-weights","install-env","run-and-repair","verify","runbook","cleanup"]
+# 注: 原 L2 期望 phase="done" 和 5 阶段,2026-06-05 toonflow-app e2e 已验证实际为 7 阶段 + archived 终态
 
 ls /root/ai-auto-harness/reports/
 # 应该看到 2026-05-19.md (或当天日期)

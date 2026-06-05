@@ -16,6 +16,17 @@
 
 ---
 
+
+---
+
+## 人话版
+
+**一句话**：第四阶段——把踩坑经验沉淀下来，写 README，方便后人接手。
+
+**打比方**：像装修完写装修日记——哪些坑怎么避、哪些材料好使、哪些施工队别找。
+
+**3 个 skill**：coverage-gaps（扫盲区）/ cost-analysis（算成本）/ verifier-corrector（事实核验）
+
 ## Files
 
 - Create: `/root/ai-auto-harness/.claude/skills/ai-auto/verifier-corrector.md`

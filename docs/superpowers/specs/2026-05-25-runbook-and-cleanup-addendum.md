@@ -62,7 +62,19 @@ SongGen 实测 269 min 跑通，过程里：
                                        update state.json phase=archived
 ```
 
-### 触发条件（主 agent 在 auto-deploy / auto-daily 流水线末尾判断）
+### 人话版
+
+**一句话**：补充了两个阶段的设计——出报告（runbook）和打扫卫生（cleanup），之前的设计文档没覆盖。
+
+**打比方**：像装修完加了两步——验收出报告（哪里好哪里不好）和保洁清理（搬走废料），之前只设计了装修本身。
+
+**核心内容**：
+- Runbook：标准化项目报告模板（slug / status / cost / verify / repair_log）
+- Cleanup：跑完清理磁盘（pip 缓存 / hf 缓存 / venv / repo），白名单机制防止误删
+
+---
+
+## 触发条件（主 agent 在 auto-deploy / auto-daily 流水线末尾判断）
 
 ```python
 if verify_result.passed:

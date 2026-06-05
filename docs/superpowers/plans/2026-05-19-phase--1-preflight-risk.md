@@ -113,6 +113,14 @@ git add experiments/
 git commit -m "ai-auto: add preflight risk experiments"
 ```
 
+## 人话版
+
+**一句话**：出发前先检查——GPU 在不在、磁盘够不够、网络通不通，有问题就不跑。
+
+**打比方**：像出车前检查油量、胎压、刹车，有一个不行就不上路。
+
+---
+
 ## Phase Acceptance
 
 - [x] Disk status is known.

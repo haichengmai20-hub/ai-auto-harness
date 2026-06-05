@@ -10,6 +10,18 @@
 
 ---
 
+## 人话版
+
+**一句话**：这台机器没有闹钟（没 cron、没 systemd、没 supervisord），所有"每天自动跑"的设计全是空话。
+
+**打比方**：像写了闹钟但手机上没装闹钟 app，到点不会响，全靠你自己记得看表。
+
+**现在怎样**：PID 1 是 `tail -f /dev/null`（一个占位进程），没有任何东西会定时启动任务。所有 run 都是手动触发的。
+
+**要做什么**：装 cron 或启动 supervisord，让 launch_worker.sh 能定时触发。最快的方式：`apt install cron && service cron start`，然后加 crontab 条目。
+
+---
+
 ## 部署项目来源
 
 | 字段 | 值 |
@@ -101,8 +113,11 @@
 
 ## 修复结果
 
-- **状态**: ❌ 未落地(MVP 方案见关联 fix,环境层改动待运维执行)
-- **验证证据**: 环境现状如"现象"段 5 条证据
+- **状态**: ⚠️ 部分落地(代码侧 healthcheck + 文档已加;daemon 安装仍需运维批准)
+- **验证证据**:
+  - 环境现状如"现象"段 5 条证据
+  - 2026-06-04 新增 `scripts/healthcheck-daemon.sh`
+  - `cron/crontab.example` / `README.md` 已写明 cron/supervisord 前提和验证命令
 - **commit hash**: 待落地
 
 ---
@@ -113,6 +128,7 @@
 - runs 证据: `find runs/ -maxdepth 1 -name "cron-*"` → 空
 - 设计假设: `.claude/skills/auto-daily/SKILL.md`(假设 cron 10:30 触发)
 - 实际触发: 各 `runs/*/meta.json` 的 `trigger` 字段(全是手动)
+- healthcheck: `scripts/healthcheck-daemon.sh`
 
 ---
 

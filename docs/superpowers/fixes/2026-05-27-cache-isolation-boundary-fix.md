@@ -10,6 +10,14 @@
 
 ---
 
+## 人话版
+
+**一句话**：OmniVoice 的 pip 缓存泄漏到了系统级 Python 目录，根因是边界没守住。
+
+**做了什么**：做了根因分析，实际修复归入 cache-isolation-boundary-level-fix。
+
+---
+
 ## 部署项目来源
 
 | 字段 | 值 |

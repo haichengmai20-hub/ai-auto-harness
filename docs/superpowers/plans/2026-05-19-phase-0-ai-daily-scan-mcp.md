@@ -191,6 +191,14 @@ git add pyproject.toml src tests mcp_server.py
 git commit -m "ai-auto: add findings JSONL and MCP bridge"
 ```
 
+## 人话版
+
+**一句话**：每天自动扫 GitHub/Twitter/HF 看有什么新项目值得部署。
+
+**打比方**：像星探每天刷各大平台看有没有好苗子，发现了就记下来排队。
+
+---
+
 ## Phase Acceptance
 
 - [x] New fields exist in report schema.

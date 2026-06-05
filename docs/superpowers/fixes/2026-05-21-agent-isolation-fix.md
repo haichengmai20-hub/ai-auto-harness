@@ -10,6 +10,14 @@
 
 ---
 
+## 人话版
+
+**一句话**：主 agent 亲自跑 bash 干 SubAgent 的活，还 kill 了别的 run 的进程。
+
+**做了什么**：加了 R1（workspace 隔离）和 R9（主 agent 不亲自 bash），verify 必须独立判定。
+
+---
+
 ## 部署项目来源
 
 | 字段 | 值 |

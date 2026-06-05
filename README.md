@@ -605,10 +605,14 @@ cat runs/$(cat runs/.current_run_id)/decisions.md  # agent 决策轨迹
 ### Step 4:部署每日自动 cron
 
 ```bash
+bash scripts/healthcheck-daemon.sh
 crontab -e
 # 加这一行(注意 scan@9:00 跑完才能跑 deploy@10:30):
 30 10 * * * /root/ai-auto-harness/cron/daily.sh
+bash scripts/healthcheck-daemon.sh --strict
 ```
+
+环境前提:本平台需要 cron/crond 或 supervisord 这类等效 daemon 托管 `cron/daily.sh`。如果 `healthcheck-daemon.sh` 提示没有 cron/supervisord,需要人手执行运维动作(例如安装并启动 cron);agent 不应在未获批准时 `apt install` 或改系统服务。
 
 ### Step 5(出问题时):看 pending_human/
 

@@ -10,6 +10,14 @@
 
 ---
 
+## 人话版
+
+**一句话**：各项目的 verify.json 自创 schema（字段名不统一、类型不一致），需要统一 6 字段强约束。
+
+**做了什么**：定了 verify.json 必须含 passed / verify_ts / checks / errors / verify_level / artifacts 6 个字段，加了 validate-verify.sh 脚本。
+
+---
+
 ## 部署项目来源(必填 — 让后人能精确追溯到"哪次跑")
 
 | 字段 | 值 |

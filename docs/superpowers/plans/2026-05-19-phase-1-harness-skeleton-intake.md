@@ -197,6 +197,14 @@ git add .gitignore .claude cron
 git commit -m "ai-auto: add harness skeleton and intake flow"
 ```
 
+## 人话版
+
+**一句话**：第一步——把代码拉下来，看看 README 怎么说，搞清楚怎么装、怎么跑。
+
+**打比方**：像拆箱看说明书，搞清楚这个玩具怎么组装。
+
+---
+
 ## Phase Acceptance
 
 - [x] Claude project context exists.

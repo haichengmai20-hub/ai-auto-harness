@@ -16,6 +16,17 @@
 
 ---
 
+
+---
+
+## 人话版
+
+**一句话**：第二阶段——下权重、装环境、跑推理。三个最耗时的步骤串起来。
+
+**打比方**：像网购后的"等快递→拆箱安装→开机测试"三步，每步都可能卡住。
+
+**关键约定**：下权重用 `hf` 不用 `huggingface-cli`；pip 串行装不加 `--no-cache-dir`；跑不通最多修 3 轮，修不好标失败。
+
 ## Files
 
 - Modify: `/root/ai-auto-harness/.claude/skills/ai-auto/daily-auto.md`

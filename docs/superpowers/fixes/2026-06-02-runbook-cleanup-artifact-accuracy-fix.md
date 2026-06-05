@@ -10,6 +10,14 @@
 
 ---
 
+## 人话版
+
+**一句话**：runbook 写 cost=0.0 但实际是数据不可用（交互式 session 无 cost 事件）；cleanup 漏清了 weights/ 目录。
+
+**做了什么**：runbook 规则改写 null 而非 0.0；cleanup 白名单加了 weights。
+
+---
+
 ## 部署项目来源
 
 | 字段 | 值 |

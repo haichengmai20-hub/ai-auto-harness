@@ -10,6 +10,14 @@
 
 ---
 
+## 人话版
+
+**一句话**：SongGen 缺 torchcodec 包，且 repo 里有损坏的 symlink 导致跑不通。
+
+**做了什么**：补了 torchcodec 安装步骤，修了 symlink 处理逻辑。
+
+---
+
 ## 部署项目来源
 
 | 字段 | 值 |

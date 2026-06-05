@@ -10,6 +10,16 @@
 
 ---
 
+## 人话版
+
+**一句话**：SessionStart hook 覆盖了 launch_worker 建的 run-id，导致所有 hook 计数和 transcript 写进了错误的目录——R1/R4/R6/R9 从上线起从未在正确目录生效。
+
+**打比方**：像快递员把信投进了隔壁家的信箱，你一直以为没人寄信，其实全投错了。
+
+**做了什么**：修了 SessionStart hook 的 run-id 解析优先级：$AI_HARNESS_RUN_ID > 有 meta.json 的 .current_run_id > 自造。launch_worker 实测 transcript 落正确目录。
+
+---
+
 ## 部署项目来源
 
 | 字段 | 值 |

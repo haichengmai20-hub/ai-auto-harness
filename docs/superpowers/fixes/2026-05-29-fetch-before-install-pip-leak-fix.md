@@ -10,6 +10,18 @@
 
 ---
 
+## 人话版
+
+**一句话**：还没建 venv 就先装 huggingface_hub，装到系统 Python 里了，可能污染别人的环境。
+
+**打比方**：像在自己家装修前先把工具借来放公共走廊，别人走路可能绊倒。
+
+**现在怎样**：fetch 阶段需要 hf 命令，但 venv 要 install 阶段才建，就先 `pip install` 装到全局了。omnivoice 的 fetch 阶段装了 3 次 huggingface_hub。
+
+**要做什么**：改顺序：先建最小 venv 再 fetch，或提前设 PIP_CACHE_DIR 隔离，或 fetch 阶段硬约束"绝不调 pip install"。
+
+---
+
 ## 部署项目来源
 
 | 字段 | 值 |

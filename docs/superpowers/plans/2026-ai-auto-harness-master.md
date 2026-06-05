@@ -1,5 +1,75 @@
 # AI Auto Harness Master Plan
 
+> 每个引用的 spec / plan / fix 文件内都有"人话版"段，用大白话解释核心内容。
+
+## 人话版速查表（专业术语 ↔ 大白话）
+
+### 8 个阶段（流水线）
+
+| 阶段 | 专业术语 | 大白话 | 对应 plan |
+|---|---|---|---|
+| Phase -1 | preflight risk assessment | 出发前检查：油量胎压刹车，有一个不行就不上路 | phase--1-preflight-risk |
+| Phase 0 | AI-daily-scan (MCP) | 星探每天刷平台看有没有好苗子 | phase-0-ai-daily-scan |
+| Phase 1 | intake (clone + README 分析) | 拆箱看说明书，搞清楚怎么组装 | phase-1-harness-skeleton-intake |
+| Phase 1.5 | fetch-weights | 等快递，大件最慢还可能缺货 | phase-1-5-harness-skeleton-weights |
+| Phase 2 | install-env | 拧螺丝，有的孔对不上有的螺丝没有 | phase-2-fetch-install-run |
+| Phase 3 | run-and-repair | 新车上路试驾，熄火就修，修 3 次还熄火就退货 | phase-2-fetch-install-run |
+| Phase 4 | verify + runbook + cleanup | 质检→出报告→打扫房间 | phase-3 ~ phase-7 |
+| Phase 5 | deploy | 餐厅试营业，客人能点菜能吃上 | phase-5-harness-skeleton-deploy |
+
+### 9 条运行规则 (R1-R9)
+
+| 规则 | 专业术语 | 大白话 |
+|---|---|---|
+| R1 | workspace 隔离 | 每个项目住单间，不许串门 |
+| R2 | state 双写 | 进度条实时更新，不能只记在脑子里 |
+| R3 | transcript.jsonl 留痕 | 聊天记录必须保存，不留盲区 |
+| R4 | poll 预算纪律 | 不能傻等烧钱，等太久就退出让 cron 接 |
+| R5 | 串行带宽 | pip 装包排队，不许插队 |
+| R6 | pip 反模式黑名单 | 不许走捷径（--no-deps / --no-cache-dir 等） |
+| R7 | hf 1.x 对齐 | 用新版命令，旧参数会报错 |
+| R8 | 核心工具常驻 | git/hf/pip 三个工具必须能用 |
+| R9 | 主 agent 不亲自 bash | 厂长只派活不自己干 |
+
+### 7 条文档规则 (D1-D7)
+
+| 规则 | 专业术语 | 大白话 |
+|---|---|---|
+| D1 | Fix → Spec 先后顺序 | 先写病历再改处方，不许凭感觉改药 |
+| D2 | ChangeLog 条目 | 改了什么必须留记录 |
+| D3 | 正文只写结论 | 法律只写现行规定，修法历史写附录 |
+| D4 | Fix 命名与唯一性 | 一个病一份病历，不许重复开 |
+| D5 | 经验库自动增长 | 踩过的坑所有人都能查到 |
+| D6 | 新 Skill 创建义务 | 新建工具必须有说明书 |
+| D7 | Git commit 纪律 | commit message 写清楚改了什么 |
+
+### 7 份 Spec（设计规范）
+
+| Spec | 专业术语 | 大白话 |
+|---|---|---|
+| spec-plan-governance | 设计文档管控规则 | 法律怎么管：正文写结论，变更写附录 |
+| fix-records-governance | 架构改善记录规则 | 病历怎么管：先写病历再改处方 |
+| spec-outcomes-reader | 结果阅读规范 | 拆快递阅读指南：先看发货单再看商品 |
+| spec-verify-schema | 验证报告格式 | 答题卡6格必填 |
+| spec-runbook-schema | 项目报告格式 | 体检报告统一格式 |
+| spec-polling-handoff | 长任务交接规范 | 接力赛：放下棒→下棒捡起来接着跑 |
+| ai-auto-harness-design | 初始设计文档 | 概念图：要盖自动化工厂 |
+
+### 优先级与测试级别（P / L）
+
+| 术语 | 专业术语 | 大白话 | 判断标准 |
+|---|---|---|---|
+| **P0** | 紧急/阻断 | 着火了，现在不修整个系统跑不了 | 全平台瘫痪 / 数据丢失 / 核心流程完全走不通 |
+| **P1** | 高优/必须修 | 大问题，本周必须修，否则越拖越烂 | 核心流程能跑但产出错误 / 效率严重浪费 / 安全隐患 |
+| **P2** | 低优/记录 | 小毛病，记着就行，有空再修 | 数据不准但不影响主流程 / 体验不好 / 记录瑕疵 |
+| **L1** | 烟测/冒烟测试 | 点一下能亮就行，不测细节 | 跑一遍 SKILL，看产出文件有没有、schema 对不对（~$5, 10 分钟） |
+| **L2** | 全链路测试 | 每个功能都跑一遍，边界也试 | 真实项目 scan→deploy 全链路，验证衔接/接续/自修/完整性（~$20-50, 1-3 小时） |
+
+**组合读法**：P0+L1 = 着火了先烟测确认能灭；P1+L2 = 大问题要全链路验证才放心；P2+L1 = 小毛病烟测够用
+
+---
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` or `superpowers:executing-plans`. Execute one phase plan at a time. Do not try to run the original full implementation plan in one session.
 
 **Goal:** Build and validate AI Auto Harness as a cron-driven Claude Code platform for finding, deploying, repairing, verifying, and reporting AI projects.
@@ -16,13 +86,13 @@
 
 ## 📍 当前状态（活索引 — 每次工作后更新此节）
 
-- **最后更新**：2026-06-02（ControlFoley e2e retro:P0 hook run-id 修复 + P2 fetch hf 1.x 现代化）
+- **最后更新**：2026-06-05（toonflow-app e2e 全链路验证通过，scan→deploy 首次闭环）
 - **版本**：v1.1（Phase 5 进行中）
-- **一句话**：Phase −1~4 平台全部 ✅;Phase 5(runbook+cleanup)实现 + L1 测试 + T5-T7 主流程串联 ✅;**P0 hook 真因修复**(SessionStart 覆盖 run-id 致 R1/R4/R6/R9 实时约束自上线起失效,已修 + 加事后纪律审计器)✅;P2 fetch hf 1.x 现代化 ✅
-- **真实战绩**：3 个项目跑通（SongGeneration / OmniVoice / Hunyuan3D-2）;ControlFoley e2e 全流程跑通并产出 19 条 retro
+- **一句话**：Phase −1~4 平台全部 ✅;Phase 5(runbook+cleanup)实现 + L1 测试 + T5-T7 主流程串联 ✅;**toonflow-app e2e scan→deploy 全链路首次闭环**✅(scan→intake→fetch→install→run→verify 3/3→runbook 297行→cleanup 1.68GB→archived);**#32 scan→deploy / #33 cleanup / #30 fetch 下载完整性校验 已闭环**✅(#30 加 committed 回归测试复现 469-vs-2.2GB 损坏);**仅剩 #31 R9 Task() 仍被绕过**(根因 S-1 待 CC 平台支持,硬阻断方案已评估拒绝)
+- **真实战绩**：5 个项目跑通（SongGeneration / OmniVoice / Hunyuan3D-2 / ControlFoley / **Toonflow-app**）；Toonflow-app 首次 scan→deploy 全链路 7 阶段跑通（MCP scan_today→pick→intake→fetch→install→run→verify 3/3→runbook→cleanup→archived）
 - **git**：本地 main 领先 upstream,**未 push**
 - **工作树**：本任务相关已 commit;遗留无关改动 `src/utils/model/*` + `monitor-ride-along/` skill 属外来工作线(非本任务,未动)
-- **下一步候选**：① 端到端重跑 e2e 验证 hook 落点 + discipline-report(P0 修复实战确认) ② P1 MCP scan 真调用改造(跨 ai-daily-scan 仓库) ③ P9 架构级状态机/非法转换检测 ④ push 到 Gitea ⑤ 清理历史孤儿 `runs/<时间戳-pid>/` 目录
+- **下一步候选**：① #31 R9 S-1 根因确认(需 CC 平台层支持) ② #15 交接机制落地 ③ #16 daemon 运维 ④ push 到 Gitea ⑤ #30 live-Xet-fallback 真实 GPU 下载顺带确认(非阻塞)
 
 ---
 
@@ -54,11 +124,15 @@
 
 ### Fix 索引(架构改善事实链)
 
-> 完整 fix 目录见 [fixes/README.md](../fixes/README.md)（共 29 条）。每条 fix 含部署项目 + run_id 来源,可精确追溯。
+> 完整 fix 目录见 [fixes/README.md](../fixes/README.md)（共 33 条）。每条 fix 含部署项目 + run_id 来源,可精确追溯。
 > 注:2026-05-29 一批 fix(#15–#25)见 fixes/README.md,本表只列里程碑级;2026-06-02 ControlFoley e2e retro 4 条已补入下表顶部。
 
 | 日期 | Fix | 部署项目 | 影响 | commit | 状态 |
 |---|---|---|---|---|---|
+| 2026-06-03 | [fetch-weights-no-download-integrity-check-fix](../fixes/2026-06-03-fetch-weights-no-download-integrity-check-fix.md) | controlfoley | 下载后无完整性校验 + Xet 卡死无 fallback（committed 回归测试复现 469-vs-2.2GB） | N/A | ✅ 已闭环 |
+| 2026-06-03 | [r9-task-dispatch-still-bypassed-fix](../fixes/2026-06-03-r9-task-dispatch-still-bypassed-fix.md) | controlfoley + toonflow-app | R9 仍被绕过(5/5 项目,bash=77/task=0),S-1 根因确认 | N/A | 🟡 部分落地 |
+| 2026-06-03 | [scan-to-deploy-never-e2e-verified-fix](../fixes/2026-06-03-scan-to-deploy-never-e2e-verified-fix.md) | toonflow-app | scan→deploy 全链路 e2e 验证通过(MCP scan_today + record_outcome) | N/A | ✅ 已闭环 |
+| 2026-06-03 | [cleanup-no-real-cleanup-and-state-mismatch-fix](../fixes/2026-06-03-cleanup-no-real-cleanup-and-state-mismatch-fix.md) | controlfoley + toonflow-app | cleanup 只做 dry_run + state 终态非 archived（toonflow-app e2e 真清 1.68GB + archived） | N/A | ✅ 已闭环 |
 | 2026-06-02 | [hook-runid-clobber-fix](../fixes/2026-06-02-hook-runid-clobber-fix.md) **P0** | controlfoley | SessionStart 覆盖 run-id → hook 写孤儿目录(R1/R4/R6/R9 失效真因)+ `validate-run-discipline.sh` | `3bb1280` | ✅ 已闭环 |
 | 2026-06-02 | [fetch-weights-hf1.x-modernization-fix](../fixes/2026-06-02-fetch-weights-hf1.x-modernization-fix.md) | controlfoley | 去 `--resume-download` + `HF_HUB_ENABLE_HF_TRANSFER`→Xet | `b0a97bf` | ✅ 已闭环 |
 | 2026-06-02 | [concurrent-download-zombie-guard-fix](../fixes/2026-06-02-concurrent-download-zombie-guard-fix.md) | controlfoley | 并发 hf download 防护 + 僵尸 hf 保守审计 | `b0a97bf` | ✅ 已闭环 |
@@ -131,12 +205,14 @@
 - **G1-G4 防护测试**：✅ 5/5 PASS（`../../../pending_human/guard-test-report-2026-05-26.md`）
 - **retro 15 条**：14 完全落地 + S-1 部分缓解（详见 retro §六 修复实施记录）
 
-### 真实部署战绩（3 个不同模态项目跑通）
+### 真实部署战绩（5 个不同模态项目跑通）
 | 项目 | 类型 | 状态 | 产物 |
 |---|---|---|---|
 | SongGeneration | 4B 音乐生成 | ✅ done | 81.7s FLAC（run2+run3 resume 接续验证跨 cron 机制） |
 | OmniVoice | 600+ 语言 TTS | ✅ done | `reports/2026-05-25-omnivoice.md` |
 | Hunyuan3D-2 | 文/图 → 3D | ✅ done | `reports/2026-05-26-hunyuan3d-2.md` |
+| ControlFoley | 视频→音效生成 | ✅ done（7 阶段全跑通） | 3 个音频文件 + RUNBOOK.md |
+| **Toonflow-app** | Node.js AI 工作台 | ✅ archived（**scan→deploy 全链路首次闭环**） | verify 3/3 + runbook 297行 + cleanup 1.68GB |
 
 ---
 
@@ -149,11 +225,11 @@
 - **cleanup `runs/<run-id>/.cache/` 处理**（实测 22GB 残留)：用户 2026-05-26 选 **A**（cleanup 同步清自己 run 的 cache，**不**递归清其他 run）→ 已在 `cleanup-deployed-workspace/SKILL.md` 第 2.5 步实现，cleanup.json 加 `run_cache_freed_bytes` / `run_cache_removed` 细分字段。commit `42bdc5c`
 
 ### 待开发 / 测试的功能（Phase 5 Task 5-13，详见 `2026-05-25-phase-5-runbook-and-cleanup.md`）
-- **Task 5-7**：主 agent 串联 —— `auto-deploy` / `auto-daily` 末尾接 runbook→cleanup dispatch；`write-recommendation` 接 `runbook_paths`
-- **Task 8**：小项目（<5GB 权重）完整 e2e —— 验 intake→verify→runbook→cleanup→`archived`
-- **Task 9**：cleanup 切 `dry_run=false`（验证 OK 后才切，真清磁盘）
-- **Task 10-12**：`auto-status` / `auto-recover` / `auto-deploy` 适配 `archived` 终态
-- **Task 13**：`settings.json` 加 deny 规则防 cleanup 越权
+- **Task 5-7**：主 agent 串联 —— ✅ toonflow-app e2e 验证 auto-daily 末尾接 runbook→cleanup→archived
+- **Task 8**：小项目（<5GB 权重）完整 e2e —— ✅ toonflow-app(0B) 验证 intake→verify→runbook→cleanup→archived
+- **Task 9**：cleanup 切 `dry_run=false` —— ✅ toonflow-app e2e 验证真清磁盘(1.68GB freed)
+- **Task 10-12**：`auto-status` / `auto-recover` / `auto-deploy` 适配 `archived` 终态 —— ⬜ 待做
+- **Task 13**：`settings.json` 加 deny 规则防 cleanup 越权 —— ⬜ 待做
 
 ### 待做的事情
 - **push 到 Gitea**（`http://192.168.1.227/maihaicheng/ai-auto-harness`，19 commits 未推）—— 外发操作，需用户确认
@@ -180,6 +256,24 @@ Run these phase plans in order:
 - For every phase, update the phase checklist only after the command output has been inspected.
 - If a phase uncovers a design issue, update the phase plan before coding through it.
 
+## 人话版
+
+**一句话**：整个项目的总蓝图——"AI 每天自动部署开源 AI 项目到 GPU 机器上"。
+
+**打比方**：像造一座自动工厂，从选品→采购→安装→质检→出货→清扫，全流程自动化，人只管看日报。
+
+**核心设计**：
+- 7 个阶段像流水线：选项目 → 拉代码 → 下权重 → 装环境 → 跑通 → 验证 → 出报告
+- 主 agent 是厂长，只分活不亲自干；5 个小 agent 是工人，各干各的阶段
+- 每天定时跑（cron），出问题自动修，修不好暂停等人来
+- 所有过程写 state.json（进度条）+ transcript.jsonl（聊天记录）+ decisions.md（决策记录）
+
+**关键约定**：
+- R1~R9 九条硬规则（workspace 隔离 / state 双写 / poll 预算 / 串行带宽 / pip 反模式 / hf 1.x / 核心工具 / verify 独立 / 主 agent 不亲自 bash）
+- D1~D7 七条文档规则（先写 fix 再改规则 / 加 ChangeLog / 正文只写结论 / fix 命名 / 经验库 / Skill 必含 5 段 / commit 前缀）
+
+---
+
 ## Phase Milestones
 
 | Phase | Milestone | 状态 | 证据（commit / 产物） |
@@ -190,7 +284,7 @@ Run these phase plans in order:
 | 2 | Candidate can fetch weights, install env, and run/repair | ✅ | `1b1a2a6` + 3 项目 fetch/install/run 跑通 |
 | 3 | MVP can verify, report, and record outcomes | ✅ | `c01ceb3` + `reports/` + outcomes |
 | 4 | Lessons, migration notice, and docs are complete | ✅ | `4d8f88c` + README 全覆写 + `memory/lessons/` |
-| 5 | Deploy runbook 沉淀 + workspace cleanup | 🟡 实现+L1 ✅，串联(Task 5-13) ⬜ | `9ee6fb3`/`42bdc5c`；详见 `2026-05-25-phase-5-runbook-and-cleanup.md` |
+| 5 | Deploy runbook 沉淀 + workspace cleanup | ✅ 实现+L1+e2e 全链路验证通过(toonflow-app scan→deploy) | `9ee6fb3`/`42bdc5c`;详见 `2026-05-25-phase-5-runbook-and-cleanup.md` |
 
 ## Stop Conditions
 

@@ -195,11 +195,122 @@ echo "=== PHASE_END   phase=<phase> slug=<slug> status=<done|paused|blocked> ts=
 - 不要污染全局 HF cache — `launch_worker.sh` 已 env-level 强制 `HF_HOME=$LOG_DIR/.cache/huggingface`,你**不需要**改它,但每次 bash 重新 export 一遍是好习惯
 - 不要在 verify 阶段修问题 — 只判定
 
+### R10. 长任务 handoff sentinel — 生产者写终态,hook 只提醒
+
+任何会跨 turn / 跨 cron 的后台长任务(fetch / pip install / build)都必须写 sentinel:
+
+```
+workspace/<slug>/.cache/handoff/<phase>-<safe-id>.json
+```
+
+必填字段:`status`, `slug`, `phase`, `pid`, `exit_code`, `started_at`, `completed_at`, `log_path`。
+fetch 场景额外字段:`repo`, `local_dir`, `bytes`。
+
+规则:
+- 后台 wrapper 退出时由**生产者进程**原子写 `status=done|failed`,不要靠即将离开的 LLM observer 猜终态
+- SessionStart hook 只把 paused / sentinel done|failed 注入上下文,提示下次 Task dispatch 接续
+- SessionEnd hook 只写 handoff audit,不改 workspace state,不 kill 别人进程
+- 看到 sentinel done 后,主 agent 仍必须 dispatch 对应 SubAgent 读日志/results 并推进 state,不要自己 Bash 接着做下一阶段
+
+## 🔴 文档维护规则(违反 = 知识断层 / 后人无法接手)
+
+> 为什么要强制文档规则？因为本项目已经有 29 个 fix、4 个 spec、10+ 个 phase plan、4 个经验文件——**文档比代码多**。如果不按规则写文档，后人（AI 或人）翻 10 个地方也拼不出完整故事。规则来源见 [spec-plan-governance](../docs/superpowers/specs/2026-05-27-spec-plan-governance.md) 和 [fix-records-governance](../docs/superpowers/specs/2026-05-27-fix-records-governance.md)。
+
+### D1. Fix → Spec/SKILL 的先后顺序(最硬规则)
+
+**先写 fix.md，再改 spec/SKILL/CLAUDE.md。不许跳过 fix 直接改规则文档。**
+
+判定标准：
+> "如果不写 fix，我能不能在改 spec/SKILL 时不心虚？"
+> - 不能（改的理由说不清）→ **必须写 fix**
+> - 能（改的理由很显然，如初始实现）→ 不需要写 fix
+
+流程：
+1. 试跑/讨论出架构改善点 → 写 `docs/superpowers/fixes/<YYYY-MM-DD>-<topic>-fix.md`（用 `_template-fix.md`）
+2. 基于 fix 结论改 spec/SKILL/CLAUDE.md
+3. 被改文件末尾加 ChangeLog 条目，引 fix.md 路径
+4. 验证 → 回填 fix.md "修复结果" → 标"已闭环"
+5. git commit: `[fix] <topic>: <一句话>`
+6. 更新 Master Plan 的 Fix 索引区
+
+### D2. ChangeLog 条目(每份规则文档必须有)
+
+任何 spec / SKILL.md / CLAUDE.md 的实质性改动（改 schema/字段名/硬约束/阈值/反模式），末尾**必须追加 ChangeLog 条目**：
+
+```markdown
+- **YYYY-MM-DD** — <一句话变更摘要>
+  - 变更类型: 规则 / 流程 / 阈值 / 结构 / 约束 / schema / 反模式
+  - 影响范围: <章节 / 字段名 / 反模式条目>
+  - 动机: <为何修改>
+  - 证据: <fixes/...md 路径>
+  - 验证: ✅ 已验证(方式) / ⬜ 待验证
+```
+
+**不加 ChangeLog 的情况**：排版/错字/加示例/开发期初始实现。
+
+### D3. 正文只写结论，不写历史
+
+- ❌ 不在正文保留"旧版本是这样的…"、"以前改过 3 次…" — 过时内容让人困惑
+- ✅ 正文只写当下结论（"应该这么做"），历史变迁写在 ChangeLog + fix.md
+- ❌ 不在同一主题写第二份 spec（造成"哪份是真"困惑）
+- ✅ 用 addendum 增量，或改原 spec 正文（并加 ChangeLog）
+
+### D4. Fix 记录命名与唯一性
+
+- 命名: `<YYYY-MM-DD>-<topic-kebab-case>-fix.md`（日期是写 fix 的日期，不是问题首次发生日期）
+- topic 是**问题主题**，不是项目名：
+  - ✅ `sleep-loop-discipline-fix`（规则）
+  - ❌ `songgen-run2-fix`（项目名 — 那是 workspace/fixes.log 的语义）
+- 同一 topic 只一份 fix，闭环后作为永久档案
+- Fix README.md 索引表必须与 fixes/ 目录一致（无漏）
+
+### D5. 经验库(memory/lessons/)自动增长
+
+当 fix 闭环后，判断是否需提升到 `memory/lessons/`：
+- **同一根因多次跨项目复现** → 提升到 lessons（如 torch sm_12、flash-attn）
+- **只出现一次的特定问题** → 不提升，留在 fix.md 就够
+- **monitor 陪跑发现的新模式** → 追加到 `memory/lessons/monitor-patterns.md`
+- `memory/MEMORY.md` 索引必须与 `memory/lessons/` 目录一致
+
+### D6. 新 Skill/Agent 创建时的文档义务
+
+创建新 `.claude/skills/<name>/SKILL.md` 时**必须**：
+1. 包含 YAML frontmatter（name / description / allowed-tools / agent）
+2. 包含"落盘约定"段（日志路径 / 结果路径 / state 更新 / decisions.md）
+3. 包含"输入"段（主 agent 传入的 JSON schema）
+4. 包含"返回 schema"段（SubAgent return 的 JSON schema）
+5. 包含"🔴 反模式"段（至少 3 条，从实际踩坑提炼）
+6. 若是 fix 驱动创建 → 末尾加 ChangeLog 条目引 fix.md
+
+### D7. Git commit 纪律
+
+| 变更类型 | commit message 格式 | body |
+|---|---|---|
+| Fix 闭环 | `[fix] <topic>: <一句话>` | `fix: <path>; affected: <spec/skill path>; closes: <issue>` |
+| SKILL 初始实现 | `[skill] <slug>: <一句话>` | 无强制 |
+| Spec/plan 更新 | `[spec] <topic>: <一句话>` | `updated: <path>` |
+| 经验库追加 | `[lessons] <topic>: <一句话>` | `added: memory/lessons/<file>` |
+
+**严禁**：一个 commit 同时改规则文档 + 运行时代码但不写 body 说明 → 后人 grep 看不出改了什么。
+
 ---
 
 ## ChangeLog
 
-> 本节回填 R1-R9 的引入来源。每条 R 规则都对应一个 fix.md(架构改善事实链)。规则见 [docs/superpowers/specs/2026-05-27-spec-plan-governance.md](../docs/superpowers/specs/2026-05-27-spec-plan-governance.md) §3.3。
+> 本节回填 R1-R9 的引入来源 + D1-D7 文档维护规则。每条规则都对应一个 fix.md(架构改善事实链)。规则见 [docs/superpowers/specs/2026-05-27-spec-plan-governance.md](../docs/superpowers/specs/2026-05-27-spec-plan-governance.md) §3.3。
+
+- **2026-06-02** — 加 D1-D7 文档维护规则(从 spec-plan-governance / fix-records-governance 提炼为硬规则)
+  - 变更类型: 规则(D1-D7 新增)
+  - 影响范围: 本文件"文档维护规则"段
+  - 动机: 项目已有 29 fix / 4 spec / 10+ plan / 4 lessons — 文档比代码多，AI 不按规则写文档就导致知识断层
+  - 证据: [docs/superpowers/specs/2026-05-27-spec-plan-governance.md](../docs/superpowers/specs/2026-05-27-spec-plan-governance.md) + [docs/superpowers/specs/2026-05-27-fix-records-governance.md](../docs/superpowers/specs/2026-05-27-fix-records-governance.md)
+
+- **2026-06-04** — 加 R10 handoff sentinel + hook 审计约定
+  - 变更类型: 规则 / schema
+  - 影响范围: R10 / `.claude/hooks/session-start.sh` / `.claude/hooks/session-end.sh`
+  - 动机: fetch 完成后无人接棒 18h,长任务终态不能只靠 observer poll
+  - 证据: [docs/superpowers/fixes/2026-05-29-polling-handoff-mechanism-fix.md](../docs/superpowers/fixes/2026-05-29-polling-handoff-mechanism-fix.md)
+  - 验证: ⬜ 待验证(handoff sentinel fixture + auto-recover 接续)
 
 - **2026-06-02** — R7 对齐 huggingface_hub 1.x(去 `--resume-download` / Xet / 并发防护)
   - 变更类型: 规则(R7 扩充)

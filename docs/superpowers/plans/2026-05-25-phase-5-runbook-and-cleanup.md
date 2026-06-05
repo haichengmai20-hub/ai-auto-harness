@@ -7,6 +7,17 @@
 
 ---
 
+
+---
+
+## 人话版
+
+**一句话**：第五阶段——出标准化报告 + 清理磁盘，让平台从"跑一次就完"变成"跑一次沉淀一次知识+释放一次磁盘"。
+
+**打比方**：像酒店退房流程——先写入住体验评价（runbook），再打扫房间给下个客人（cleanup）。
+
+**2 个新 skill**：write-deploy-runbook（出报告）/ cleanup-deployed-workspace（打扫磁盘）
+
 ## Context
 
 5/22 SongGen e2e 跑通后总结出两个缺口：

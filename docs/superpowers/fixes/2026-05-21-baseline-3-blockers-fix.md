@@ -10,6 +10,14 @@
 
 ---
 
+## 人话版
+
+**一句话**：SongGen 跑不通的三个原因：torch 版本不对、cuda 编译失败、flash-attn 编不过。
+
+**做了什么**：加了 R5（串行带宽）R6（pip 反模式）R7（用 hf 不用 huggingface-cli），launch_worker.sh 加 HF_HOME 隔离。
+
+---
+
 ## 部署项目来源
 
 | 字段 | 值 |

@@ -10,6 +10,14 @@
 
 ---
 
+## 人话版
+
+**一句话**：定下了"用 cron 定时驱动自动部署"的整体架构，和 R1-R9 九条硬规则。
+
+**做了什么**：定义了 auto-daily / auto-recover / cleanup 三条 cron 路径，和 workspace 隔离 / state 双写 / poll 预算 / 串行带宽等规则。
+
+---
+
 ## 部署项目来源
 
 | 字段 | 值 |

@@ -10,6 +10,14 @@
 
 ---
 
+## 人话版
+
+**一句话**：新版 hf CLI 移除了 `--resume-download` flag 和 `HF_HUB_ENABLE_HF_TRANSFER` 环境变量，还用就会报错或出 warning。
+
+**做了什么**：SKILL.md 和 CLAUDE.md 全部对齐：去 `--resume-download`，用 `HF_XET_HIGH_PERFORMANCE=1` 替代 `HF_HUB_ENABLE_HF_TRANSFER`，加并发下载防护。
+
+---
+
 ## 部署项目来源
 
 | 字段 | 值 |

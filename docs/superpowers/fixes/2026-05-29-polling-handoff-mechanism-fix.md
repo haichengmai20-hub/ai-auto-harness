@@ -10,6 +10,18 @@
 
 ---
 
+## 人话版
+
+**一句话**：权重下完了，但没人知道该开始装环境了，在那干等了 18.7 小时。
+
+**打比方**：像快递到了放门口，但家里没人收，一直放到你下班回家才发现。
+
+**现在怎样**：fetch 阶段 AI 撞了 poll 预算退出后，没有东西检测"下载完了没"并触发下一阶段。
+
+**要做什么**：写个看门狗脚本，每分钟检查 state.json，发现 paused_in_progress 就自动续跑。或者靠 SessionStart hook 每次新会话时扫一遍有没有卡住的任务。
+
+---
+
 ## 部署项目来源
 
 | 字段 | 值 |
@@ -78,6 +90,7 @@
 - [ ] 修 `cron/launch_worker.sh`:长任务套 `trap` 写哨兵文件
 - [ ] 修 `.claude/hooks/session-start.sh`:加"扫 paused + 已完成未推进任务 → 续跑"逻辑
 - [ ] 修 `.claude/hooks/session-end.sh`:加"退出前核实 + 失败告警"逻辑
+- [x] 修 `.claude/skills/auto-deploy/SKILL.md`:重复 launch 同 slug 时先读旧 `state.json`,非终态必须接续,禁止覆盖成新 intake
 - [ ] 新建 `cron/watchdog.sh`:shell 常驻看门狗(加固档,非 MVP)
 - [ ] (根治档)改容器 entrypoint 为 `supervisord`
 
@@ -105,8 +118,13 @@
 
 ## 修复结果
 
-- **状态**: ❌ 未落地(设计方案已有,实施待排期)
-- **验证证据**: 设计方案见 `workspace/hunyuan3d-2/results/2026-05-26-polling-handoff-analysis.md`
+- **状态**: ⚠️ 部分落地(代码侧 MVP 已加,待 L1 接续验证)
+- **验证证据**:
+  - 设计方案见 `workspace/hunyuan3d-2/results/2026-05-26-polling-handoff-analysis.md`
+  - 2026-06-04 已新增 R10 handoff sentinel 约定、SessionStart resume hints、SessionEnd handoff audit
+  - `fetch-weights` / `install-env` skill 已要求后台 wrapper 写 `workspace/<slug>/.cache/handoff/*.json`
+  - 2026-06-04 已收紧 `/auto-deploy <url>` 重复 launch 语义:先做 workspace 预检,同 slug 非终态直接从 `state.phase` 接续,不重新写初始 state
+  - 2026-06-04 静态验证:预检位于 `analyze_project` 和初始 `state.json` 写入之前;旧表格中“/auto-deploy 不接续”矛盾描述已移除
 - **commit hash**: 待落地
 
 ---
@@ -119,6 +137,8 @@
 - 报告: `reports/2026-05-26-hunyuan3d-2.md`
 - 相关 R 规则: `.claude/CLAUDE.md` R4(poll 预算退出行为)
 - 相关 hook: `.claude/hooks/session-start.sh`(待加自愈逻辑)
+- 相关 hook: `.claude/hooks/session-end.sh`(handoff audit)
+- 相关规则: `.claude/CLAUDE.md` R10
 
 ---
 
