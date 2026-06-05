@@ -88,11 +88,11 @@
 
 - **最后更新**：2026-06-05（toonflow-app e2e 全链路验证通过，scan→deploy 首次闭环）
 - **版本**：v1.1（Phase 5 进行中）
-- **一句话**：Phase −1~4 平台全部 ✅;Phase 5(runbook+cleanup)实现 + L1 测试 + T5-T7 主流程串联 ✅;**toonflow-app e2e scan→deploy 全链路首次闭环**✅(scan→intake→fetch→install→run→verify 3/3→runbook 297行→cleanup 1.68GB→archived);**#32 scan→deploy / #33 cleanup / #30 fetch 下载完整性校验 已闭环**✅(#30 加 committed 回归测试复现 469-vs-2.2GB 损坏);**仅剩 #31 R9 Task() 仍被绕过**(根因 S-1 待 CC 平台支持,硬阻断方案已评估拒绝)
+- **一句话**：Phase −1~4 平台全部 ✅;Phase 5(runbook+cleanup)实现 + L1 测试 + T5-T7 主流程串联 ✅;**toonflow-app e2e scan→deploy 全链路首次闭环**✅(scan→intake→fetch→install→run→verify 3/3→runbook 297行→cleanup 1.68GB→archived);**#32 scan→deploy / #33 cleanup 已闭环**✅;**#30 fetch 下载完整性校验**🟡(已补 committed 回归测试复现 469-vs-2.2GB 损坏,但真实 GPU 权重下载 e2e 未跑);**#31 R9 Task() 仍被绕过**🟡(根因 S-1 待 CC 平台支持,硬阻断方案已评估拒绝)
 - **真实战绩**：5 个项目跑通（SongGeneration / OmniVoice / Hunyuan3D-2 / ControlFoley / **Toonflow-app**）；Toonflow-app 首次 scan→deploy 全链路 7 阶段跑通（MCP scan_today→pick→intake→fetch→install→run→verify 3/3→runbook→cleanup→archived）
 - **git**：本地 main 领先 upstream,**未 push**
 - **工作树**：本任务相关已 commit;遗留无关改动 `src/utils/model/*` + `monitor-ride-along/` skill 属外来工作线(非本任务,未动)
-- **下一步候选**：① #31 R9 S-1 根因确认(需 CC 平台层支持) ② #15 交接机制落地 ③ #16 daemon 运维 ④ push 到 Gitea ⑤ #30 live-Xet-fallback 真实 GPU 下载顺带确认(非阻塞)
+- **下一步候选**：① #30 fetch-weights 真实 GPU 权重下载 e2e(验 live-Xet-fallback,升 ✅) ② #31 R9 S-1 根因确认(需 CC 平台层支持) ③ #15 交接机制落地 ④ #16 daemon 运维 ⑤ push 到 Gitea
 
 ---
 
@@ -129,7 +129,7 @@
 
 | 日期 | Fix | 部署项目 | 影响 | commit | 状态 |
 |---|---|---|---|---|---|
-| 2026-06-03 | [fetch-weights-no-download-integrity-check-fix](../fixes/2026-06-03-fetch-weights-no-download-integrity-check-fix.md) | controlfoley | 下载后无完整性校验 + Xet 卡死无 fallback（committed 回归测试复现 469-vs-2.2GB） | N/A | ✅ 已闭环 |
+| 2026-06-03 | [fetch-weights-no-download-integrity-check-fix](../fixes/2026-06-03-fetch-weights-no-download-integrity-check-fix.md) | controlfoley | 下载后无完整性校验 + Xet 卡死无 fallback（committed 回归测试复现 469-vs-2.2GB，待真实 GPU e2e） | N/A | 🟡 部分落地 |
 | 2026-06-03 | [r9-task-dispatch-still-bypassed-fix](../fixes/2026-06-03-r9-task-dispatch-still-bypassed-fix.md) | controlfoley + toonflow-app | R9 仍被绕过(5/5 项目,bash=77/task=0),S-1 根因确认 | N/A | 🟡 部分落地 |
 | 2026-06-03 | [scan-to-deploy-never-e2e-verified-fix](../fixes/2026-06-03-scan-to-deploy-never-e2e-verified-fix.md) | toonflow-app | scan→deploy 全链路 e2e 验证通过(MCP scan_today + record_outcome) | N/A | ✅ 已闭环 |
 | 2026-06-03 | [cleanup-no-real-cleanup-and-state-mismatch-fix](../fixes/2026-06-03-cleanup-no-real-cleanup-and-state-mismatch-fix.md) | controlfoley + toonflow-app | cleanup 只做 dry_run + state 终态非 archived（toonflow-app e2e 真清 1.68GB + archived） | N/A | ✅ 已闭环 |

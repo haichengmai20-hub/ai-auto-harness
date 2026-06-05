@@ -19,8 +19,8 @@
 ## 统计
 
 - **总计**: 33 条
-- **✅ 已闭环**: 22 条（#30 加 committed 回归测试闭环；#32 #33 toonflow-app e2e 闭环）
-- **🟡 部分落地**: 1 条（#31，R9 根因 S-1 待 CC 平台支持，硬阻断已评估拒绝）
+- **✅ 已闭环**: 21 条（#32 #33 toonflow-app e2e 闭环）
+- **🟡 部分落地**: 2 条（#30 fetch 完整性校验、#31 R9；均已补 committed 回归测试，待真实 e2e / 上游）
 - **❌ 未闭环**: 10 条
 - **P0**: 3 条
 - **P1**: 23 条
@@ -30,10 +30,11 @@
 
 ---
 
-## 🟡 部分落地（1 条 — 代码已写，根因待上游）
+## 🟡 部分落地（2 条 — 代码已写 + 回归测试，待真实 e2e / 上游）
 
 | # | 级别 | 人话 | Fix 文件 | 已落地部分 | 残留 |
 |---|---|---|---|---|---|
+| 30 | P1 | 下完快递不拆箱验货，少了一半零件不知道 | [fetch-weights-no-download-integrity-check](2026-06-03-fetch-weights-no-download-integrity-check-fix.md) | `validate-fetch-weights.sh` + SKILL.md Xet fallback + committed 回归测试(复现 469-vs-2.2GB) | 真实 GPU 权重下载→校验 + live-Xet-fallback 的 e2e 未跑，按"没真实 e2e 不算闭环"维持 🟡 |
 | 31 | P1 | 经理自己干 77 次活 0 次派工，警告也忽略 | [r9-task-dispatch-still-bypassed](2026-06-03-r9-task-dispatch-still-bypassed-fix.md) | PostToolUse hook R9 警告 + `validate-artifacts.sh`(已补回归测试) | 根因 S-1（SubAgent 拿不到 system-prompt）待 CC 平台；硬阻断方案已评估**拒绝**（会搞挂合法路由 bash） |
 
 ---
@@ -57,14 +58,13 @@
 
 ---
 
-## ✅ 已闭环（22 条 — 按时间倒序）
+## ✅ 已闭环（21 条 — 按时间倒序）
 
 > 最近修的排最前，方便回溯。
 
 | # | 级别 | 人话 | Fix 文件 | commit | 影响项目 |
 |---|---|---|---|---|---|
 | 26 | **P0** | 信投进隔壁信箱了，R1/R4/R6/R9 从上线起从未在正确目录生效 | [hook-runid-clobber](2026-06-02-hook-runid-clobber-fix.md) | `3bb1280` | controlfoley |
-| 30 | P1 | 下完快递不拆箱验货，少了一半零件不知道 | [fetch-weights-no-download-integrity-check](2026-06-03-fetch-weights-no-download-integrity-check-fix.md) | 回归测试 | controlfoley |
 | 32 | P1 | 扫描到部署全链路从没真跑通过一次 | [scan-to-deploy-never-e2e-verified](2026-06-03-scan-to-deploy-never-e2e-verified-fix.md) | e2e 验证 | toonflow-app |
 | 33 | P2 | 打扫只比划没真扫，完工章还盖错了 | [cleanup-no-real-cleanup-and-state-mismatch](2026-06-03-cleanup-no-real-cleanup-and-state-mismatch-fix.md) | toonflow-app e2e | controlfoley |
 | 29 | P2 | 报表写免费实际是数据不可用；漏清了 weights | [runbook-cleanup-artifact-accuracy](2026-06-02-runbook-cleanup-artifact-accuracy-fix.md) | P6/P7 | hunyuan3d + omnivoice |
@@ -124,7 +124,7 @@
 - #27 hf 1.x 现代化 ✅
 - #28 并发 download 锁竞争 ✅
 - #29 runbook/cleanup artifact ✅
-- #30 下载完整性校验 ✅（validator + committed 回归测试；live-Xet-fallback 待 GPU 项目顺带确认）
+- #30 下载完整性校验 🟡（validator + committed 回归测试；待真实 GPU 权重下载 e2e）
 - #31 R9 仍被绕过 🟡（hook + artifact gate 已写；根因 S-1 待 CC 平台，硬阻断已评估拒绝）
 - #32 scan→deploy 全链路 ✅（toonflow-app e2e）
 - #33 cleanup dry_run + 终态 ✅（toonflow-app e2e 真清 1.68GB + archived）
@@ -142,12 +142,13 @@
 2. #16 环境无 daemon — 需运维层改动（装 cron / 启 supervisord）
 
 **P1（本周应修）**:
-3. #31 R9 Task() 仍被绕过 — 🟡 hook + artifact gate 已落地（含回归测试）；根因 S-1 待 CC 平台支持
-4. #19 Task() 隔离未落地 — 需先调研 --bare 下 Task() 行为
-5. #20 fetch→install pip 泄漏 — 三种方案待选
-6. #17 状态快照失真 — 与 #15 ① 自报终态是同一方案
-7. #18 verify 内容级检查 — 需设计分级验证策略
-8. #21 缓存边界级 — 方案待选（项目级 vs 全局共享）
+3. #30 fetch-weights 下载完整性校验 — 🟡 validator + committed 回归测试已落地，待真实 GPU 权重下载 e2e
+4. #31 R9 Task() 仍被绕过 — 🟡 hook + artifact gate 已落地（含回归测试）；根因 S-1 待 CC 平台支持
+5. #19 Task() 隔离未落地 — 需先调研 --bare 下 Task() 行为
+6. #20 fetch→install pip 泄漏 — 三种方案待选
+7. #17 状态快照失真 — 与 #15 ① 自报终态是同一方案
+8. #18 verify 内容级检查 — 需设计分级验证策略
+9. #21 缓存边界级 — 方案待选（项目级 vs 全局共享）
 
 **P2（记录但不急）**:
 11. #22 run.json 字段失真

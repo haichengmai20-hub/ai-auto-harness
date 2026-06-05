@@ -5,8 +5,8 @@
 - **Fix ID**: `2026-06-03-fetch-weights-no-download-integrity-check-fix`
 - **创建日期**: 2026-06-03
 - **级别**: P1
-- **状态**: ✅ 已闭环（validator 逻辑已 committed 回归测试覆盖；live-Xet-fallback 为 SKILL 程序规则，真实 GPU 下载 e2e 待下个项目顺带确认，非阻塞）
-- **负责人 / session**: Claude session @ 2026-06-03（ControlFoley e2e retro）；2026-06-05 加 committed 回归测试闭环
+- **状态**: 🟡 部分落地（validator 逻辑已 committed 回归测试覆盖；但真实 GPU 权重下载 e2e 未跑，按"没真实 e2e 不算闭环"维持部分落地）
+- **负责人 / session**: Claude session @ 2026-06-03（ControlFoley e2e retro）；2026-06-05 加 committed 回归测试（强化证据，未升 ✅）
 
 ---
 
@@ -112,7 +112,7 @@
 
 ## 修复结果
 
-- **状态**: ✅ 已闭环（核心 integrity-check 已 committed 回归测试覆盖）
+- **状态**: 🟡 部分落地（核心 integrity-check 已 committed 回归测试覆盖，待真实 GPU 权重下载 e2e）
 - **验证证据**:
   - `scripts/validate-fetch-weights.sh`：下载后比对实际大小 vs HF manifest(`siblings[].size`)，差异 > 5% → FAIL
   - **committed 回归测试** `scripts/tests/test-validators.sh`（2026-06-05 新增，离线、零网络，`manifest_json` 喂合成 manifest）：
@@ -150,19 +150,20 @@
 
 ## 后续动作
 
-- [x] **spec/plan ChangeLog 已加** → 2026-06-05 Master Plan Fix 索引 #30 → ✅
-- [x] **Master Plan Fix 索引区已更新** → 2026-06-05 #30 标 ✅
+- [x] **spec/plan ChangeLog 已加** → 2026-06-05 Master Plan Fix 索引 #30 证据补充（状态仍 🟡）
+- [x] **Master Plan Fix 索引区已更新** → 2026-06-05 #30 补 committed 回归测试证据（状态仍 🟡）
 - [x] **是否提升到 memory/lessons** → 2026-06-05 `memory/lessons/xet-tls-unstable.md` 已建 + MEMORY.md 索引已加
-- [~] **是否需要 L1 重测验证** → validator 逻辑已 committed 回归测试覆盖；live-Xet-fallback 真实 GPU 下载 e2e 待下个 GPU 项目顺带确认（非阻塞）
+- [ ] **是否需要 L1 重测验证** → 是：validator 逻辑已 committed 回归测试覆盖，但真实 GPU 权重下载→校验 e2e 未跑，需在下个 GPU 项目验证 live-Xet-fallback 才能升 ✅
 - [ ] **是否需要写 pending_human** → 否
 
 ---
 
 ## ChangeLog
 
-- **2026-06-05** — 状态 🟡 部分落地 → ✅ 已闭环：加 committed 离线回归测试 + 经验提升 lessons
-  - 变更类型: 状态 / 证据补充 / 测试
-  - 影响范围: 本文件 元信息/修复结果/后续动作段 + 新增 `scripts/tests/test-validators.sh` + `memory/lessons/xet-tls-unstable.md`
+- **2026-06-05** — 加 committed 离线回归测试 + 经验提升 lessons（强化证据，状态维持 🟡）
+  - 变更类型: 证据补充 / 测试
+  - 影响范围: 本文件 修复结果/后续动作段 + 新增 `scripts/tests/test-validators.sh` + `memory/lessons/xet-tls-unstable.md`
   - 动机: 原 🟡 因 validator 只有 ad-hoc 未提交 fixture；补 committed 回归测试(复现 469-vs-2200 损坏)使核心 integrity-check 可回归验证
+  - 动机(维持 🟡): 真实 GPU 权重下载→校验 + live-Xet-fallback 的 e2e 仍未跑，按"没真实 e2e 不算闭环"不升 ✅
   - 证据: `scripts/tests/test-validators.sh`（7/7 PASS）
-  - 验证: ✅ 已验证(`bash scripts/tests/test-validators.sh`)
+  - 验证: ✅ validator 逻辑已验证；⬜ 真实 GPU 下载 e2e 待跑
