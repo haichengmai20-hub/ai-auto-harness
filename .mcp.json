@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "ai_daily_scan": {
+      "command": "python",
+      "args": ["/root/ai-auto-harness/scripts/ai-daily-scan-mcp-stdio.py"],
+      "env": {
+        "PYTHONPATH": "/root/ai-daily-scan:/root/ai-daily-scan/src"
+      }
+    }
+  }
+}

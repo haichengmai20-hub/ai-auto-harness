@@ -13,7 +13,7 @@ set -e
 
 HARNESS_ROOT="${AI_AUTO_HARNESS_ROOT:-/root/ai-auto-harness}"
 CLAUDE_HAHA_BIN="${CLAUDE_HAHA_BIN:-$HARNESS_ROOT/bin/claude-haha}"
-CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-/root/.claude}"
+CLAUDE_CONFIG_DIR="${CLAUDE_HAHA_CONFIG_DIR:-$HARNESS_ROOT/.claude-haha}"
 
 cd "$HARNESS_ROOT"
 [ -f .env ] && set -a && source .env && set +a
@@ -140,6 +140,8 @@ HF_TOKEN="${HF_TOKEN:-}" \
     --output-format stream-json \
     --verbose \
     --dangerously-skip-permissions \
+    --setting-sources user,project,local \
+    --mcp-config "$HARNESS_ROOT/.mcp.json" \
     --settings "$HARNESS_ROOT/.claude/settings.json" \
     > "$LOG_DIR/harness.stdout.ndjson" \
     2> "$LOG_DIR/harness.stderr.log" &

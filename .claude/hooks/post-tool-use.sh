@@ -150,7 +150,19 @@ if "--no-cache-dir" in cmd:
     )
 
 # === R9: 主 agent 干 SubAgent 活 ===
-if bash_count > 5 and task_called == 0:
+if bash_count > 20 and task_called == 0:
+    warnings.append(
+        f"🔴 R9 VIOLATION: 已 {bash_count} 次 Bash 但 0 次 Task()。立即停止内联执行,下一 turn 必须 "
+        "dispatch Task(subagent_type=\"intake-agent\"|\"fetch-agent\"|\"install-agent\"|"
+        "\"runner-agent\"|\"verify-agent\"|\"runbook-agent\"|\"cleanup-agent\")。"
+        "继续主 agent 自己 bash 会导致 verify.json/runbook.json/cleanup.json 缺失。"
+    )
+elif bash_count > 10 and task_called == 0:
+    warnings.append(
+        f"🔴 R9 VIOLATION: 已 {bash_count} 次 Bash 但 0 次 Task()。主 agent 只能做路由、状态机推进、"
+        "Task() dispatch 和报告聚合。各 phase 必须交给 SubAgent,否则 Phase artifacts 会缺失。"
+    )
+elif bash_count > 5 and task_called == 0:
     if re.search(r'\b(git\s+clone|hf\s+download|huggingface-cli\s+download|pip\s+install)\b', cmd):
         warnings.append(
             f"🟡 R9 SUSPECTED: 已 {bash_count} 次 Bash 但 0 次 Task() — 你可能是主 agent 在自己干 "

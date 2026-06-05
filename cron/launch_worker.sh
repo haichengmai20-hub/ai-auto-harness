@@ -29,6 +29,7 @@
 #   --output-format stream-json     ndjson 事件流
 #   --verbose                       每事件独立一行
 #   --settings ...                  权限白名单 + MCP scan + PostToolUse hook
+#   --mcp-config ...                项目级 MCP runtime 配置(不读 /root/.claude)
 #   --append-system-prompt          R1/R4/R5/R6/R9 硬规则反复强调(skill prompt 不够硬)
 #   (不用 --bare,会跳过 hooks/skills)
 set -e
@@ -44,7 +45,7 @@ fi
 
 HARNESS_ROOT="${AI_AUTO_HARNESS_ROOT:-/root/ai-auto-harness}"
 CLAUDE_HAHA_BIN="${CLAUDE_HAHA_BIN:-$HARNESS_ROOT/bin/claude-haha}"
-CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-/root/.claude}"
+CLAUDE_CONFIG_DIR="${CLAUDE_HAHA_CONFIG_DIR:-$HARNESS_ROOT/.claude-haha}"
 
 cd "$HARNESS_ROOT"
 [ -f .env ] && set -a && source .env && set +a
@@ -242,6 +243,8 @@ HF_TOKEN="${HF_TOKEN:-}" \
     --output-format stream-json \
     --verbose \
     --dangerously-skip-permissions \
+    --setting-sources user,project,local \
+    --mcp-config "$HARNESS_ROOT/.mcp.json" \
     --settings "$HARNESS_ROOT/.claude/settings.json" \
     > "$LOG_DIR/harness.stdout.ndjson" \
     2> "$LOG_DIR/harness.stderr.log" &

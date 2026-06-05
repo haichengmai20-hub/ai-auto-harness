@@ -4,6 +4,26 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Keep claudecodehaha isolated from the subscription Claude Code home.
+# The harness loads project skills from $ROOT_DIR/.claude/skills and user/cache
+# state from this dedicated home, so symlinks or plugins in /root/.claude cannot
+# hide or pollute harness skills.
+export CLAUDE_CONFIG_DIR="${CLAUDE_HAHA_CONFIG_DIR:-$ROOT_DIR/.claude-haha}"
+mkdir -p "$CLAUDE_CONFIG_DIR"
+
+# A parent shell or a previous --bare run can leave SIMPLE/ablation toggles in
+# the environment. In SIMPLE mode Claude Code intentionally skips project skill
+# dir walks, project MCP, hooks, and custom agents. Only an explicit --bare arg
+# should re-enable it inside src/entrypoints/cli.tsx.
+unset CLAUDE_CODE_SIMPLE
+unset CLAUDE_CODE_ABLATION_BASELINE
+unset CLAUDE_CODE_DISABLE_THINKING
+unset DISABLE_INTERLEAVED_THINKING
+unset DISABLE_COMPACT
+unset DISABLE_AUTO_COMPACT
+unset CLAUDE_CODE_DISABLE_AUTO_MEMORY
+unset CLAUDE_CODE_DISABLE_BACKGROUND_TASKS
+
 if [[ -n "${BUN_PATH:-}" && -x "${BUN_PATH}" ]]; then
   BUN_BIN="$BUN_PATH"
 elif [[ -n "${BUN_PATH:-}" ]]; then

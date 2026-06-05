@@ -14,7 +14,7 @@ agent: fetch-agent
 1. **只下,不装**:本 phase 严禁起任何 `pip install` / venv 创建,带宽给下载用(R5)
 2. **`hf` 不是 `huggingface-cli`**:后者已废弃,统一用 `hf download ... --token "$HF_TOKEN"`(R7)
 3. **HF_TOKEN 必须显式传**:不要靠 env 默认捡,`--token "$HF_TOKEN"` 显式写在命令里
-4. **HF_XET_HIGH_PERFORMANCE=1**:开 Xet 高性能后端加速(huggingface_hub 1.x 已用 Xet 取代 hf_transfer;`HF_HUB_ENABLE_HF_TRANSFER` 已废弃,会出 FutureWarning,**禁用**)
+4. **Xet 先试但必须 fallback**:可先 `HF_XET_HIGH_PERFORMANCE=1`,但 30min 无增长 ≥100MB 或 TLS/403 循环 >3 次,必须切 `HF_HUB_DISABLE_XET=1` 普通 HTTP 重下;`HF_HUB_ENABLE_HF_TRANSFER` 已废弃,**禁用**
 5. **foreground sleep ≤ 60s/次**(R4):长等用 `setsid nohup ... &` 后台 + tail log + `kill -0 $PID` 判活
 6. **state.json 每 phase 起止双写**(R2):本 skill 开头写 `phase=fetching, status=running`,return 前写 `status=done`
 7. **wall-clock 上限 180min**(R3):超过且进度 < 50% → `paused_for_human`;> 50% → `paused_in_progress`,下次 cron 接续
@@ -54,7 +54,7 @@ export HF_HOME="${HF_HOME:-$WORKSPACE/.cache/huggingface}"
 export HF_HUB_CACHE="${HF_HUB_CACHE:-$WORKSPACE/.cache/hf_hub}"
 export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$WORKSPACE/.cache/transformers}"
 
-# 加速:开 Xet 高性能后端(huggingface_hub 1.x 默认走 Xet;hf_xet 已随包捆绑)
+# 首次尝试可开 Xet 高性能后端;若卡死,第 4 步必须切 HF_HUB_DISABLE_XET=1 fallback
 # 注:HF_HUB_ENABLE_HF_TRANSFER 已废弃(FutureWarning),不要再用
 export HF_XET_HIGH_PERFORMANCE=1
 
@@ -97,6 +97,9 @@ BG_SHELLS=$(jq -c '.fetch_state.bg_shells // []' "$WORKSPACE/state.json")
 REPO="<repo>"
 DEST="$WORKSPACE/.cache/hf_models/$REPO"
 mkdir -p "$DEST"
+mkdir -p "$WORKSPACE/.cache/handoff"
+SAFE_REPO=$(echo "$REPO" | tr '/:' '__')
+SENTINEL="$WORKSPACE/.cache/handoff/fetch-weights-$SAFE_REPO.json"
 
 # 🔴 并发防护(P2-6):同一 repo 已有 hf download 在跑就**不**再起新进程
 # (实测:LLM 见下载慢就"重试"起 3 个进程写同一 --local-dir,锁竞争 → 0 MB/s)
@@ -105,12 +108,18 @@ if pgrep -f "hf download.*$REPO" >/dev/null 2>&1; then
 else
 # 用 setsid + nohup 双重保险脱离 parent process group
 setsid nohup bash -c "
+  set +e
+  STARTED_AT=\$(date -Iseconds)
   export HF_XET_HIGH_PERFORMANCE=1
   echo '==== fetching $REPO at \$(date -Iseconds) ====' >> '$WORKSPACE/logs/fetch_weights.log'
   # 新版 hf download 默认断点续传(--resume-download 在 huggingface_hub 1.x 已移除)
   hf download '$REPO' \
       --local-dir '$DEST' \
       --token '$HF_TOKEN' 2>&1
+  RC=\$?
+  BYTES=\$(du -sb '$DEST' 2>/dev/null | awk '{print \$1}')
+  python3 -c 'import json,sys,time; path,rc,bytes_,pid=sys.argv[1],int(sys.argv[2]),int(sys.argv[3] or 0),int(sys.argv[4]); json.dump({\"status\":\"done\" if rc==0 else \"failed\",\"slug\":\"'$SLUG'\",\"phase\":\"fetch-weights\",\"repo\":\"'$REPO'\",\"pid\":pid,\"exit_code\":rc,\"started_at\":\"'\"\$STARTED_AT\"'\",\"completed_at\":time.strftime(\"%Y-%m-%dT%H:%M:%S%z\"),\"log_path\":\"'$WORKSPACE/logs/fetch_weights.log'\",\"local_dir\":\"'$DEST'\",\"bytes\":bytes_}, open(path,\"w\"), ensure_ascii=False, indent=2)' '$SENTINEL' \"\$RC\" \"\${BYTES:-0}\" \"\$BASHPID\"
+  exit \$RC
 " >> "$WORKSPACE/logs/fetch_weights.log" 2>&1 &
 PID=$!
 fi
@@ -164,6 +173,7 @@ tail -30 "$WORKSPACE/logs/fetch_weights.log"
 2. **写 progress.md**:`- 2026-05-19T10:42 — fetching <repo>: 12.3GB / 23GB (53%), PID=12345 alive`
 3. **磁盘检查**:`df -h "$WORKSPACE"` 看 free,< 30GB → KillBash 本 run 的 PID + 报告 disk_low(R1:**只杀本 PID 文件里的**)
 4. **`.incomplete` 文件大小变化检查**:`ls -la "$DEST"/*.incomplete 2>/dev/null`,记录每次 size,若 30min 无变化 → 卡了
+5. **Xet 错误计数**:`grep -Ei "tls handshake eof|403 Forbidden|xet" "$LOG" | tail -20`,若 TLS/403 循环 >3 次 → 第 4 步切 HTTP fallback
 
 ## 第 4 步:卡死判定 + 重启
 
@@ -172,6 +182,15 @@ tail -30 "$WORKSPACE/logs/fetch_weights.log"
 - `rm "$WORKSPACE/.cache/hf_models/<repo>"/*.incomplete` 删坏的临时文件(`hf download` resume 会重建)
 - 第 2 步重启(同 repo,`hf download` 默认断点续传,从已 cache 的文件接着下;无 `--resume-download` flag)
 - 重启 max 2 次,仍卡 → `blocked.append("download_stuck:" + repo)` 调 request-human-intervention
+
+如果 Xet 模式下 30min 下载增长 <100MB 或日志出现 `tls handshake eof` / `403 Forbidden` 循环 >3 次:
+- KillBash(shell_id) 杀本 repo PID
+- 删除该 repo 下 `.incomplete`
+- 用普通 HTTP fallback 重启:
+  ```bash
+  HF_HUB_DISABLE_XET=1 hf download "$REPO" --local-dir "$DEST" --token "$HF_TOKEN"
+  ```
+- 在 `results/weights.json.repos[].fallback = "http_no_xet"` 记录
 
 ## 第 5 步:时间预算判定(跨 cron 接续核心)
 
@@ -197,6 +216,11 @@ ELAPSED_SEC=$(( $(date +%s) - $(date -d "$META_START" +%s) ))
 ## 第 7 步:全部完成 + 建 symlink 到 README 要求的相对路径
 
 每个 repo 下完(进度 100% + .incomplete 消失 + 退出 0):
+- **必须跑完整性校验**:
+  ```bash
+  bash scripts/validate-fetch-weights.sh "$WORKSPACE" "$REPO" "$DEST"
+  ```
+  校验失败(缺文件 / 大小差异 >5%) → 删除坏文件并按第 4 步 fallback 重下;不要把损坏文件传给 run-and-repair
 - 移到 weights_done
 - 从 weights_pending 移除
 - 更新 state.json
@@ -289,6 +313,8 @@ echo "=== PHASE_END   phase=fetch-weights slug=$SLUG status=done ts=$(date -Isec
 - ❌ **不要并发起多个 `hf download` 写同一 `--local-dir`**(P2-6 实测:3 进程锁竞争 → 0 MB/s)— 起新进程前先 `pgrep -f "hf download.*<repo>"`,有就别起
 - ❌ **不要加 `--resume-download`**(huggingface_hub 1.x 已移除该 flag,加了直接报错)— 默认就续传
 - ❌ **不要用 `HF_HUB_ENABLE_HF_TRANSFER=1`**(已废弃 FutureWarning)— 用 `HF_XET_HIGH_PERFORMANCE=1`
+- ❌ **不要只检查 `.incomplete` 消失就判 done** — 必须跑 `scripts/validate-fetch-weights.sh` 比对 manifest size
+- ❌ **不要让 Xet TLS/403 循环超过 3 次还继续等** — 切 `HF_HUB_DISABLE_XET=1` fallback
 
 ## ChangeLog
 
@@ -298,6 +324,12 @@ echo "=== PHASE_END   phase=fetch-weights slug=$SLUG status=done ts=$(date -Isec
   - 动机: `--resume-download` 在 1.x 报错、`HF_HUB_ENABLE_HF_TRANSFER` FutureWarning、3 进程并发写同 dir 锁竞争 0 MB/s(P2-4/P2-9/P2-6)
   - 证据: [fixes/2026-06-02-fetch-weights-hf1.x-modernization-fix.md](../../../docs/superpowers/fixes/2026-06-02-fetch-weights-hf1.x-modernization-fix.md) + [fixes/2026-06-02-concurrent-download-zombie-guard-fix.md](../../../docs/superpowers/fixes/2026-06-02-concurrent-download-zombie-guard-fix.md)
   - 规则: `hf download` 默认续传(无 `--resume-download`);加速用 `HF_XET_HIGH_PERFORMANCE=1`;起新下载前 `pgrep -f "hf download.*<repo>"`
+- **2026-06-04** — 加下载完整性校验 / Xet fallback / handoff sentinel
+  - 变更类型: 流程 / schema / 反模式
+  - 影响范围: 硬规则 4 / 第 2 步后台下载 / 第 3-4 步 poll+fallback / 第 7 步 done 判定 / 反模式
+  - 动机: ControlFoley Xet 卡死 24h 且 CLAP 权重只有 469MB,fetch 阶段未发现
+  - 证据: [fixes/2026-06-03-fetch-weights-no-download-integrity-check-fix.md](../../../docs/superpowers/fixes/2026-06-03-fetch-weights-no-download-integrity-check-fix.md) + [fixes/2026-05-29-polling-handoff-mechanism-fix.md](../../../docs/superpowers/fixes/2026-05-29-polling-handoff-mechanism-fix.md)
+  - 验证: ⬜ 待验证(`scripts/validate-fetch-weights.sh` fixture + ControlFoley 校验)
 - ❌ 不要 wait 一个 bg shell — poll
 - ❌ 不要不 export `HF_HOME` 等就跑下载 — 会污染 ~/.cache/huggingface
 - ❌ 不要在 cron 快到时间但还在下时 kill 进程 — 让它后台继续

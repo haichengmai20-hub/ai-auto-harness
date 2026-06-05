@@ -14,7 +14,7 @@ allowed-tools: [Read, Write, Bash, Task, mcp__ai_daily_scan__*]
 
 你(主 agent / orchestrator)**只做** 4 件事:
 
-1. **路由决策**:30B / gated / 复用 workspace 三分支
+1. **路由决策**:先做 workspace 接续预检,再走 30B / gated / 新项目三分支
 2. **状态机推进**:读 `state.json`,选下一个 phase
 3. **`Task()` dispatch SubAgent**:`intake-agent` / `fetch-agent` / `install-agent` / `runner-agent` / `verify-agent`
 4. **结果聚合 + 写报告**
@@ -27,6 +27,8 @@ allowed-tools: [Read, Write, Bash, Task, mcp__ai_daily_scan__*]
 - ❌ 在一个 phase 里"顺手"做下一 phase 的事(比如 fetch 里启 pip)— SubAgent 隔离边界要硬
 
 **为什么强制**:run2 试跑暴露的核心问题就是主 agent 全程不调 Task(),48 次 Bash 把 5 个 phase 揉成一团,在同一 context 里做"先装还是先下"的拍脑袋决策,结果 kill 掉自己的下载、又抢别 run 的带宽、最后空转 1h。**SubAgent 隔离强制串行 + context 单一职责 = 不会做这种烂决策**。
+
+**运行时硬拦截**:PostToolUse hook 会在 `bash_count > 10 && task_called == 0` 时注入 R9 强警告,`>20` 时提示立即停止内联。不要把 hook 当兜底;第一阶段就应该 Task dispatch。
 
 ## 工作流
 
@@ -42,7 +44,38 @@ echo "$RUN_ID" > "runs/.current_run_id"
 echo "{\"started_at\":\"$(date -Iseconds)\",\"run_id\":\"$RUN_ID\",\"trigger\":\"/auto-deploy\",\"url\":\"$ARGUMENTS\"}" > "runs/$RUN_ID/meta.json"
 ```
 
+### 任务 0.5:重复 URL / 既有 workspace 预检
+
+这一步必须在 `analyze_project` 和任何 `state.json` 写入之前执行。重复 launch 同一项目时,非终态 workspace 只能接续,不能覆盖。
+
+```bash
+url="$ARGUMENTS"
+repo=$(basename "$url" .git)
+SLUG=$(echo "$repo" | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '-' | sed 's/^-//;s/-$//')
+WORKSPACE="workspace/$SLUG"
+
+if [ -f "$WORKSPACE/state.json" ]; then
+    PHASE=$(jq -r '.phase // "null"' "$WORKSPACE/state.json")
+    if [ "$PHASE" = "done" ] || [ "$PHASE" = "archived" ]; then
+        echo "$SLUG 之前已完成/归档;默认不重跑,不覆盖旧 state。"
+        exit 0
+    elif [ "$PHASE" = "paused_for_human" ]; then
+        echo "$SLUG 等人手处理,见 pending_human/$SLUG.md;不要覆盖 state.json。"
+        exit 0
+    else
+        echo "$SLUG 在 phase=$PHASE,本次 /auto-deploy 必须接续既有 state。"
+        RESUME_EXISTING=1
+    fi
+else
+    RESUME_EXISTING=0
+fi
+```
+
+`RESUME_EXISTING=1` 时跳过任务 1-3 的新项目分析/过滤/初始化,直接进任务 4,从 `state.phase` 对应阶段 dispatch。任何非终态 workspace 都不能 `cat > "$WORKSPACE/state.json"` 覆盖,否则会丢跨 worker 接续进度。
+
 ### 任务 1:ad-hoc 分析
+
+若 `RESUME_EXISTING=1`,跳过任务 1-3,不要重新分析、不要重新 gating、不要改写旧 state;直接进任务 4 的 phase dispatch。
 
 调 MCP 跑一次 analyst:
 
@@ -88,21 +121,30 @@ fi
 SLUG = <slug,从 github_url 抽,小写 + - 替换>
 WORKSPACE = f"workspace/{SLUG}"
 
-# 写 state.json
-state = {
-    "slug": SLUG,
-    "github_url": $ARGUMENTS,
-    "hf_repos": finding["hf_repos"],
-    "estimated_params_b": finding["estimated_params_b"],
-    "estimated_weight_size_gb": finding["estimated_weight_size_gb"],
-    "gated_repos": finding["gated_repos"],
-    "scenario_hits": finding["scenario_hits"],
-    "phase": "intake",
-    "phases_done": [],
-    "started_at": now(),
-    "trigger": "/auto-deploy"
-}
-Write WORKSPACE/state.json with state
+# 仅新项目写初始 state.json;接续项目绝不覆盖旧 state
+if RESUME_EXISTING == 0:
+    state = {
+        "slug": SLUG,
+        "github_url": $ARGUMENTS,
+        "hf_repos": finding["hf_repos"],
+        "estimated_params_b": finding["estimated_params_b"],
+        "estimated_weight_size_gb": finding["estimated_weight_size_gb"],
+        "gated_repos": finding["gated_repos"],
+        "scenario_hits": finding["scenario_hits"],
+        "phase": "intake",
+        "phases_done": [],
+        "started_at": now(),
+        "trigger": "/auto-deploy"
+    }
+    Write WORKSPACE/state.json with state
+else:
+    state = Read WORKSPACE/state.json
+    # dispatch 输入优先从既有 state 取:github_url / hf_repos / *_result / phase
+
+github_url = state.get("github_url", $ARGUMENTS)
+hf_repos = state.get("hf_repos", finding["hf_repos"] if RESUME_EXISTING == 0 else [])
+gated_repos = state.get("gated_repos", finding["gated_repos"] if RESUME_EXISTING == 0 else [])
+estimated_weight_size_gb = state.get("estimated_weight_size_gb", finding["estimated_weight_size_gb"] if RESUME_EXISTING == 0 else None)
 
 # 走 phase dispatch 逻辑 — 必须用 Task() 工具,严禁主 agent 自己 bash
 # 每个 phase 一次 Task() 调用,prompt 里只传该 phase 必需的输入
@@ -113,12 +155,12 @@ Task(
     description="intake <slug>",
     prompt=f"""
 slug: {SLUG}
-github_url: {ARGUMENTS}
+github_url: {github_url}
 workspace_path: workspace/{SLUG}
 run_id: {RUN_ID}
-hf_repos: {finding['hf_repos']}
-gated_repos: {finding['gated_repos']}
-estimated_weight_size_gb: {finding['estimated_weight_size_gb']}
+hf_repos: {hf_repos}
+gated_repos: {gated_repos}
+estimated_weight_size_gb: {estimated_weight_size_gb}
 
 按 intake skill 跑完,return intake.json schema。
 """
@@ -132,7 +174,7 @@ if intake_result.status == "done":
         description=f"fetch weights for {SLUG}",
         prompt=f"""
 slug: {SLUG}
-hf_repos: {finding['hf_repos']}
+hf_repos: {hf_repos}
 workspace_path: workspace/{SLUG}
 run_id: {RUN_ID}
 
@@ -216,6 +258,14 @@ else:
 
 调 **write-recommendation** skill,同 auto-daily 任务 4。**必须把 `RUNBOOK_PATH` 透传给 write-recommendation**(让日报含部署 runbook 链接):
 
+写报告前必须跑 artifact gate:
+
+```bash
+bash scripts/validate-artifacts.sh "$WORKSPACE"
+```
+
+若 verify passed 但 cleanup.json 缺失,先回到任务 4.6 dispatch cleanup-agent;若 runbook.json 缺失,先回到任务 4.5 dispatch runbook-agent。不要用手写 markdown 替代 `results/runbook.json`。
+
 ```python
 write_recommendation_input = {
     "run_id": RUN_ID,
@@ -248,7 +298,7 @@ SLUG=$(echo "$repo" | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '-' | sed 's/^-//;s/-$//'
 |---|---|---|
 | 来源 | scan findings.jsonl 自动 pick | 命令行参数 URL |
 | 选项目 | 过滤 + 排序,选 1 个 | 直接用 URL |
-| 接续 | 是,扫 in_progress | **不接续**,每次都新跑(若重复 URL 会撞 workspace,需提示用户) |
+| 接续 | 是,扫 in_progress | 固定 URL;若同 slug workspace 为非终态,**必须接续该 workspace** |
 | cron 触发 | 是 | 否,手动 |
 | Analyst 调用 | 否(用现成 findings) | **是**(ad-hoc 跑 analyst) |
 
@@ -258,21 +308,16 @@ SLUG=$(echo "$repo" | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '-' | sed 's/^-//;s/-$//'
 WORKSPACE="workspace/$SLUG"
 if [ -d "$WORKSPACE" ] && [ -f "$WORKSPACE/state.json" ]; then
     PHASE=$(jq -r .phase "$WORKSPACE/state.json")
-    if [ "$PHASE" = "done" ]; then
-        # 已部署过,询问用户(或直接接受 ad-hoc 重新部署):
-        echo "$SLUG 之前已部署完成"
-        echo "选项:"
-        echo "  1. 跳过(用 'rm -rf $WORKSPACE' 后重跑可强制)"
-        echo "  2. 跳到 verify 重新验证"
-        echo "  3. 用 /auto-recover 接续(若是 paused_for_human)"
-        # 默认动作:报告"已部署"并退出(让用户决定)
+    if [ "$PHASE" = "done" ] || [ "$PHASE" = "archived" ]; then
+        echo "$SLUG 之前已部署完成/归档"
+        echo "默认动作:跳过,不覆盖旧 state。若确认重跑,人工指定新 slug 或清理 workspace 后再跑。"
         exit
     elif [ "$PHASE" = "paused_for_human" ]; then
         # 提示用 /auto-recover OR 检查 pending_human/<slug>.md
         echo "$SLUG 等人手处理,见 pending_human/$SLUG.md"
         exit
     else
-        # 是中途状态,等价于 /auto-recover
+        # 是中途状态,等价于对该 slug 做 /auto-recover
         echo "$SLUG 在 phase=$PHASE,接续部署"
         # 跳到任务 4 的 phase dispatch
     fi
@@ -282,7 +327,7 @@ fi
 ## 反模式
 
 - ❌ 不要无脑 rm -rf workspace/<slug>/ 重跑(可能丢已下完的权重)
-- ❌ 不要直接走 5 阶段而不先调 analyze_project(没拿到 size_gb 不知道 30B 阈值)
+- ❌ 新项目不要直接走 5 阶段而不先调 analyze_project(没拿到 size_gb 不知道 30B 阈值);接续项目则优先信旧 state,不重分析
 - ❌ 不要在 analyze_project 报错时强行猜测 hf_repos(那种情况应该 raise 让用户给 URL 或手动 finding)
 - ❌ **不要主 agent 自己 `Bash(git clone / hf download / pip install / python ...)`** — 用 `Task()` dispatch SubAgent。主 agent 的 Bash 仅限读 state.json / 写 meta.json / 调度类操作
 - ❌ **不要在同一个 Task() 让 SubAgent 跨 phase 干活**(比如让 fetch-agent "顺手装个 pip")— phase 边界要硬
@@ -290,3 +335,17 @@ fi
 - ❌ **不要 verify 失败时还跑 cleanup-agent** — 失败 case 的 workspace 是唯一现场,清掉就丢线索
 - ❌ **不要 verify 失败就跳过 runbook-agent** — 失败 case runbook 对下次部署者(踩坑章节)同样有价值
 - ❌ **不要 runbook / cleanup 跑完忘了把 `runbook_path` 透传给 write-recommendation** — 日报缺链接
+
+## ChangeLog
+
+- **2026-06-04** — 加 R9 hook 阈值说明 + 写报告前 artifact gate
+  - 变更类型: 约束 / 流程
+  - 影响范围: 主 agent 角色定位 / 任务 5
+  - 动机: ControlFoley e2e 主 agent 内联 165 Bash / 0 Task,导致 verify.json/runbook.json/cleanup.json 缺失
+  - 证据: [fixes/2026-06-03-r9-task-dispatch-still-bypassed-fix.md](../../../docs/superpowers/fixes/2026-06-03-r9-task-dispatch-still-bypassed-fix.md)
+  - 验证: ⬜ 待验证(小型 /auto-deploy L1)
+- **2026-06-04** — 收紧重复 `/auto-deploy` 的接续语义
+  - 变更类型: 约束 / 流程
+  - 影响范围: 任务 0.5 / 任务 1 / 任务 4 / 重复部署同一 URL
+  - 动机: monitor 重复 launch 同一项目时,必须先读旧 `state.json` 接续,不能覆盖为新 intake
+  - 验证: ⬜ 待验证(同 slug 非终态 fixture + /auto-deploy L1)

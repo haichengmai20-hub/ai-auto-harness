@@ -131,7 +131,17 @@ pip install --upgrade pip setuptools wheel 2>&1 | tee -a "$LOG"
 ```bash
 # 错:pip install -e . 2>&1 | tee -a "$LOG"  — 占住 foreground,LLM 只能 sleep 等
 # 对:后台跑,LLM 下个 turn tail 判活,绝不连续 sleep
-setsid nohup bash -c "pip install -e . 2>&1; echo PIP_EXIT=\$? >> '$LOG'" >> "$LOG" 2>&1 &
+mkdir -p "$WORKSPACE/.cache/handoff"
+SENTINEL="$WORKSPACE/.cache/handoff/install-env-pip.json"
+setsid nohup bash -c "
+  set +e
+  STARTED_AT=\$(date -Iseconds)
+  pip install -e . 2>&1
+  RC=\$?
+  echo PIP_EXIT=\$RC >> '$LOG'
+  python3 -c 'import json,sys,time; path,rc,pid=sys.argv[1],int(sys.argv[2]),int(sys.argv[3]); json.dump({\"status\":\"done\" if rc==0 else \"failed\",\"slug\":\"'$SLUG'\",\"phase\":\"install-env\",\"pid\":pid,\"exit_code\":rc,\"started_at\":\"'\"\$STARTED_AT\"'\",\"completed_at\":time.strftime(\"%Y-%m-%dT%H:%M:%S%z\"),\"log_path\":\"'$WORKSPACE/logs/install_env.log'\"}, open(path,\"w\"), ensure_ascii=False, indent=2)' '$SENTINEL' \"\$RC\" \"\$BASHPID\"
+  exit \$RC
+" >> "$LOG" 2>&1 &
 PIP_PID=$!
 echo $PIP_PID > "$WORKSPACE/.cache/install_pip.pid"
 ```
@@ -279,3 +289,12 @@ echo "=== PHASE_END   phase=install-env slug=$SLUG status=done ts=$(date -Isecon
 - ❌ 卸载系统级 python / 改 ~/.bashrc 改 PATH
 - ❌ 强装某个特定版本而没看 lessons(浪费时间)
 - ❌ 第 4 次重装 torch 还没好 → 必须 raise pending_human
+
+## ChangeLog
+
+- **2026-06-04** — pip 长任务写 handoff sentinel
+  - 变更类型: 流程 / schema
+  - 影响范围: 第 3 步后台 pip wrapper
+  - 动机: 长任务退出后需要由 SessionStart/SessionEnd hook 发现和交接,不能只靠即将离开的观察者 poll
+  - 证据: [fixes/2026-05-29-polling-handoff-mechanism-fix.md](../../../docs/superpowers/fixes/2026-05-29-polling-handoff-mechanism-fix.md)
+  - 验证: ⬜ 待验证(handoff sentinel fixture)

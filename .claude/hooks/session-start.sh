@@ -50,6 +50,59 @@ else
 fi
 echo ""
 
+echo "### Handoff sentinels / paused resume hints"
+python3 - <<'PYEOF' 2>/dev/null || echo "  (handoff scan failed)"
+import json, pathlib, time
+
+root = pathlib.Path("/root/ai-auto-harness")
+rows = []
+for state_path in sorted(root.glob("workspace/*/state.json")):
+    try:
+        state = json.loads(state_path.read_text())
+    except Exception:
+        continue
+    slug = state.get("slug") or state_path.parent.name
+    phase = state.get("phase")
+    status = state.get("status")
+    paused = bool(state.get("paused_in_progress")) or status == "paused_in_progress"
+    if paused or phase not in (None, "done", "archived", "paused_for_human"):
+        rows.append({
+            "kind": "state",
+            "slug": slug,
+            "phase": phase,
+            "status": status,
+            "updated_at": state.get("updated_at"),
+            "hint": "dispatch the matching SubAgent via Task() to resume; do not inline Bash",
+        })
+
+for sentinel in sorted(root.glob("workspace/*/.cache/handoff/*.json")):
+    try:
+        data = json.loads(sentinel.read_text())
+    except Exception:
+        rows.append({"kind": "sentinel", "path": str(sentinel.relative_to(root)), "status": "invalid_json"})
+        continue
+    status = data.get("status")
+    if status in ("done", "failed", "running", "paused_in_progress"):
+        rows.append({
+            "kind": "sentinel",
+            "slug": data.get("slug") or sentinel.parents[2].name,
+            "phase": data.get("phase"),
+            "status": status,
+            "pid": data.get("pid"),
+            "completed_at": data.get("completed_at"),
+            "path": str(sentinel.relative_to(root)),
+        })
+
+if not rows:
+    print("  (无)")
+else:
+    for row in rows[:12]:
+        print("  - " + json.dumps(row, ensure_ascii=False, sort_keys=True))
+    if len(rows) > 12:
+        print(f"  ... {len(rows) - 12} more")
+PYEOF
+echo ""
+
 echo "### Pending human"
 if [ -d "pending_human" ]; then
     files=$(ls pending_human/ 2>/dev/null | grep -v "^_" || true)
@@ -66,3 +119,16 @@ echo ""
 echo "### Resources"
 nvidia-smi --query-gpu=index,memory.used,memory.free --format=csv,noheader,nounits 2>/dev/null | head -10 || echo "  nvidia-smi 不可用"
 df -h /root 2>/dev/null | tail -1 || true
+echo ""
+
+echo "### Experience library (memory/lessons/)"
+if [ -d "memory/lessons" ]; then
+    for f in memory/lessons/*.md; do
+        if [ -f "$f" ]; then
+            TITLE=$(head -1 "$f" | sed 's/^# //')
+            echo "  - $TITLE → $f"
+        fi
+    done
+else
+    echo "  (无)"
+fi

@@ -1,7 +1,18 @@
+# AI Auto Harness cron example.
+#
+# 前置检查:
+#   bash /root/ai-auto-harness/scripts/healthcheck-daemon.sh
+#
+# 若系统没有 cron,这是运维动作,不要让 agent 偷偷执行:
+#   apt install cron
+#   service cron start
+#
 # 把这一行加到 root crontab(执行 `crontab -e`):
 
 30 10 * * * /root/ai-auto-harness/cron/daily.sh
 
 # 验证:
 #   crontab -l | grep ai-auto
-#   tail -f /root/ai-auto-harness/runs/cron-*/cron.out
+#   bash /root/ai-auto-harness/scripts/healthcheck-daemon.sh --strict
+#   ls -d /root/ai-auto-harness/runs/cron-*
+#   tail -f /root/ai-auto-harness/runs/cron-*/harness.stderr.log

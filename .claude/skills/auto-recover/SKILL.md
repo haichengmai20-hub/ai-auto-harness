@@ -54,6 +54,8 @@ echo "     或 /auto-deploy <url> 手动指定项目"
 
 读项目 state.json 决定 phase → 派对应 SubAgent(同 /auto-daily 任务 3 完整 phase dispatch 逻辑).
 
+⛔ **必须 Task dispatch**:auto-recover 只做接续选择和状态机推进,不得自己用 Bash 执行 git/hf/pip/python 阶段任务。PostToolUse hook 会在 Bash>10 且 Task=0 时注入 R9 强警告。
+
 特别处理:
 
 - `paused_in_progress=true` 的项目(fetch-weights 中途暂停):
@@ -65,6 +67,14 @@ echo "     或 /auto-deploy <url> 手动指定项目"
 ### 任务 3:写报告 + 回填
 
 同 /auto-daily 任务 4 调 write-recommendation skill。
+
+写报告前若项目已进入 verify/runbook/cleanup 后段,必须先跑:
+
+```bash
+bash scripts/validate-artifacts.sh "$WORKSPACE"
+```
+
+validator 失败时先 dispatch 缺失的 SubAgent;不要手工补 markdown 或跳过 schema JSON。
 
 ## 重置 paused_for_human 的协议
 
@@ -103,3 +113,13 @@ phases_done = ["intake", "fetch-weights", "install-env"] → resume from "runnin
 - ❌ 不要在 /auto-recover 里调 scan_today()(它的语义就是"不挑新项目")
 - ❌ 不要强行 unpause(必须人手先删 pending_human/<slug>.md 才进入 unpause 流程)
 - ❌ 不要并行接续多个 in_progress(MVP N=1 串行,选最早的一个)
+- ❌ 不要自己 Bash 跑接续阶段任务 — 一律 Task dispatch,否则 artifacts 会缺失
+
+## ChangeLog
+
+- **2026-06-04** — 加 R9 接续分派约束 + artifact gate
+  - 变更类型: 约束 / 流程
+  - 影响范围: 任务 2 / 任务 3 / 反模式
+  - 动机: auto-recover 是最容易“顺手接着 bash”的入口,ControlFoley 已复现 artifacts 缺失
+  - 证据: [fixes/2026-06-03-r9-task-dispatch-still-bypassed-fix.md](../../../docs/superpowers/fixes/2026-06-03-r9-task-dispatch-still-bypassed-fix.md)
+  - 验证: ⬜ 待验证(auto-recover L1)

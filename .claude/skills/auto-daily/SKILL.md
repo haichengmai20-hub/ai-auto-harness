@@ -8,7 +8,11 @@ allowed-tools: [Read, Write, Bash, Task, mcp__ai_daily_scan__*]
 
 你是 AI Auto Harness 平台的主 agent。每天 10:30 由 cron 启动你(或被 `/auto-daily` 命令触发)。
 
-> **运行模式说明**:cron 用 `--bare` 启动 claude-haha(跳过 hooks/OAuth/keychain 等 Privoxy 不友好的功能),所以 SessionStart/PostToolUse/SessionEnd **hooks 不会触发**。本 skill 需要**自己**生成 run-id、写 transcript、最后 commit 报告.
+> **运行模式说明**:cron / manual worker 统一用 `IS_SANDBOX=1 + --dangerously-skip-permissions + --output-format stream-json --verbose + --settings .claude/settings.json` 启动,保留 skills 和 SessionStart/PostToolUse/SessionEnd hooks。历史 `--bare` 会跳过 hooks/skills,已废弃。
+
+## ⛔ R9 强制分派规则(先读)
+
+主 agent 每个 phase 必须用 `Task()` dispatch 对应 SubAgent。主 agent 的 Bash 只允许做路由/读写 state/meta/validator 这类调度动作;严禁自己 `git clone` / `hf download` / `pip install` / `python -m ...` 跑阶段任务。PostToolUse hook 会在 Bash>10 且 Task=0 时注入强警告,但不要等 hook 提醒才改。
 
 ## 任务 0:初始化(主 agent 启动后第一件事)
 
@@ -209,6 +213,13 @@ force_cleanup_incomplete: false
 
 ### 任务 4:写报告 + 回填
 
+- 写报告前先跑 artifact gate(若 workspace 已进入 verify/runbook/cleanup 后段):
+  ```bash
+  bash scripts/validate-artifacts.sh "$WORKSPACE"
+  ```
+  - 若 verify failed 且无 cleanup.json: 合法
+  - 若 verify passed 但 cleanup.json 缺失: 先 dispatch `cleanup-agent`,不要直接写 passed 报告
+  - 若 runbook.json 缺失: 先 dispatch `runbook-agent`,不要手写 RUNBOOK.md 替代 schema
 - 调 **write-recommendation skill** 写 `reports/<YYYY-MM-DD>.md`(覆写,因单天可能多次 cron 重跑)
   - 输入 `run_results[i]` 必须含 `runbook_path`(可为 null)+ `cleanup_result`(可为 null)— 让日报渲染部署手册链接
 - 调 `mcp__ai_daily_scan__record_outcome(slug, status, ...)` 回填给 scan
@@ -228,3 +239,12 @@ force_cleanup_incomplete: false
 - 不要 verify 失败时还跑 cleanup-agent — workspace 是失败 case 的唯一现场
 - 不要 verify 失败就跳过 runbook-agent — 失败 runbook 的踩坑章节对下次有价值
 - 不要忘了把 runbook_path 透传给 write-recommendation — 日报缺链接
+
+## ChangeLog
+
+- **2026-06-04** — 修正文档漂移并加入 R9/artifact gate
+  - 变更类型: 约束 / 流程
+  - 影响范围: 运行模式说明 / R9 分派规则 / 任务 4 写报告前检查
+  - 动机: `--bare` 说明已过期;ControlFoley 实测 165 Bash 0 Task 导致 verify/runbook/cleanup artifacts 缺失
+  - 证据: [fixes/2026-06-03-r9-task-dispatch-still-bypassed-fix.md](../../../docs/superpowers/fixes/2026-06-03-r9-task-dispatch-still-bypassed-fix.md) + [fixes/2026-06-03-scan-to-deploy-never-e2e-verified-fix.md](../../../docs/superpowers/fixes/2026-06-03-scan-to-deploy-never-e2e-verified-fix.md)
+  - 验证: ⬜ 待验证(L1 scan→pick→intake + artifact validator)
