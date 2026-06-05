@@ -5,6 +5,7 @@ node_modules
 git-learning-sandbox/
 
 # AI Auto Harness 运行时数据(不进 git)
+.claude-haha/
 workspace/
 runs/
 memory/projects/
@@ -12,3 +13,8 @@ pending_human/
 state/blacklist.jsonl
 state/deployment_history.jsonl
 reports/
+
+# e2e 测试临时工作目录 + bun/python 缓存碎片(不进 git)
+e2e-*/
+**/__pycache__/
+*.pile
