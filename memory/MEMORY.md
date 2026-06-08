@@ -10,4 +10,5 @@
 | `flash-attn-build.md` | flash-attn 编译失败：prebuilt wheel 选择、fallback 策略 | install-env, run-and-repair |
 | `hf-gated.md` | HF gated repo token + license 同意流程 | fetch-weights |
 | `xet-tls-unstable.md` | Xet 传输卡死(tls eof/403 循环)兜底切普通 HTTP + 下载后大小校验(防 469MB vs 2.2GB 截断) | fetch-weights |
+| `proxy-hf-download.md` | 代理环境 HF 下载 503：no_proxy 加 huggingface.co / unset proxy / 降并发三解法 | fetch-weights |
 | `monitor-patterns.md` | 陪跑监控经验库：进程异常、R 规则违反、hook 失效、deprecated 命令 | 所有阶段(monitor 用) |

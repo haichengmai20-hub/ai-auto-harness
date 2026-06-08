@@ -18,6 +18,8 @@ agent: fetch-agent
 5. **foreground sleep ≤ 60s/次**(R4):长等用 `setsid nohup ... &` 后台 + tail log + `kill -0 $PID` 判活
 6. **state.json 每 phase 起止双写**(R2):本 skill 开头写 `phase=fetching, status=running`,return 前写 `status=done`
 7. **wall-clock 上限 180min**(R3):超过且进度 < 50% → `paused_for_human`;> 50% → `paused_in_progress`,下次 cron 接续
+8. **代理绕过**(新增):公司 HTTP 代理连接池有限,`hf download` 走代理易打爆 503。launch_worker.sh/daily.sh 已 env-level 把 `huggingface.co` 加入 `no_proxy`,但 SubAgent **每次新开 bash** 也必须 re export `no_proxy` 或 `unset HTTPS_PROXY HTTP_PROXY`
+8. **代理绕过(必须)**:下载前必须 `unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy` 或确认 `no_proxy` 含 `huggingface.co`。代理连接池有限,Xet 多连接打爆代理 → 503 Too many open connections。launch_worker.sh 已 env-level 设 `no_proxy`,但 `setsid nohup bash -c` 子 shell 需再次 unset 确保生效
 
 ## 落盘约定(必读)
 
@@ -53,6 +55,13 @@ echo "=== PHASE_START phase=fetch-weights slug=$SLUG run_id=$RUN_ID ts=$(date -I
 export HF_HOME="${HF_HOME:-$WORKSPACE/.cache/huggingface}"
 export HF_HUB_CACHE="${HF_HUB_CACHE:-$WORKSPACE/.cache/hf_hub}"
 export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$WORKSPACE/.cache/transformers}"
+
+# 🔴 代理绕过(2026-06-08-proxy-hf-download-503-fix):
+# 公司代理连接池有限,Xet 多连接打爆代理 → 503 Too many open connections。
+# 必须在下载前 unset 代理,让 HF 直连。launch_worker.sh 已设 no_proxy,
+# 但 setsid nohup 子 shell 可能不继承,必须显式 unset。
+unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
+echo "proxy vars unset for HF download" >> "$LOG"
 
 # 首次尝试可开 Xet 高性能后端;若卡死,第 4 步必须切 HF_HUB_DISABLE_XET=1 fallback
 # 注:HF_HUB_ENABLE_HF_TRANSFER 已废弃(FutureWarning),不要再用
@@ -110,6 +119,8 @@ else
 setsid nohup bash -c "
   set +e
   STARTED_AT=\$(date -Iseconds)
+  # 🔴 代理绕过:unset proxy 让 HF 直连(2026-06-08-proxy-hf-download-503-fix)
+  unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
   export HF_XET_HIGH_PERFORMANCE=1
   echo '==== fetching $REPO at \$(date -Iseconds) ====' >> '$WORKSPACE/logs/fetch_weights.log'
   # 新版 hf download 默认断点续传(--resume-download 在 huggingface_hub 1.x 已移除)
@@ -315,6 +326,7 @@ echo "=== PHASE_END   phase=fetch-weights slug=$SLUG status=done ts=$(date -Isec
 - ❌ **不要用 `HF_HUB_ENABLE_HF_TRANSFER=1`**(已废弃 FutureWarning)— 用 `HF_XET_HIGH_PERFORMANCE=1`
 - ❌ **不要只检查 `.incomplete` 消失就判 done** — 必须跑 `scripts/validate-fetch-weights.sh` 比对 manifest size
 - ❌ **不要让 Xet TLS/403 循环超过 3 次还继续等** — 切 `HF_HUB_DISABLE_XET=1` fallback
+- ❌ **不要在代理环境下不走 no_proxy 就跑 `hf download`** — 代理连接池有限,Xet 多连接打爆代理 → 503 Too many open connections(2026-06-08-proxy-hf-download-503-fix)
 
 ## ChangeLog
 
@@ -330,6 +342,12 @@ echo "=== PHASE_END   phase=fetch-weights slug=$SLUG status=done ts=$(date -Isec
   - 动机: ControlFoley Xet 卡死 24h 且 CLAP 权重只有 469MB,fetch 阶段未发现
   - 证据: [fixes/2026-06-03-fetch-weights-no-download-integrity-check-fix.md](../../../docs/superpowers/fixes/2026-06-03-fetch-weights-no-download-integrity-check-fix.md) + [fixes/2026-05-29-polling-handoff-mechanism-fix.md](../../../docs/superpowers/fixes/2026-05-29-polling-handoff-mechanism-fix.md)
   - 验证: ⬜ 待验证(`scripts/validate-fetch-weights.sh` fixture + ControlFoley 校验)
+- **2026-06-08** — 代理绕过:HF 下载直连(no_proxy + unset proxy)
+  - 变更类型: 硬约束 + 反模式 + 流程
+  - 影响范围: 硬规则 8(新增) / 第 0 步 env export / 第 2 步 setsid 下载块 / 反模式段
+  - 动机: 公司代理连接池有限,Xet 多连接打爆代理 → 503 Too many open connections,Magenta RealTime 部署因此卡在 34MB/15.5GB
+  - 证据: [fixes/2026-06-08-proxy-hf-download-503-fix.md](../../../docs/superpowers/fixes/2026-06-08-proxy-hf-download-503-fix.md)
+  - 验证: ⬜ 待验证(重跑 magenta-realtime fetch 阶段)
 - ❌ 不要 wait 一个 bg shell — poll
 - ❌ 不要不 export `HF_HOME` 等就跑下载 — 会污染 ~/.cache/huggingface
 - ❌ 不要在 cron 快到时间但还在下时 kill 进程 — 让它后台继续

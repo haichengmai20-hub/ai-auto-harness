@@ -101,6 +101,17 @@ if [ -n "${HF_TOKEN:-}" ]; then
 fi
 echo "isolated cache: $ISOLATED_CACHE" >> "$LOG_DIR/meta.json"
 
+# ============ 代理绕过:HF 下载直连(避免代理 503 Too many open connections) ============
+# Fix: 2026-06-08-proxy-hf-download-503-fix
+# 根因:公司 HTTP 代理连接池有限,Xet 多连接打爆代理 → 503。
+# 解法:(1) no_proxy 加 huggingface.co 域名 (2) 下载子进程 unset HTTPS_PROXY/HTTP_PROXY
+# 这里做 env-level 设置,claude-haha 子进程和 SubAgent 的 bash 都会继承。
+export no_proxy="${no_proxy:+$no_proxy,}huggingface.co,.huggingface.co,cdn-lfs.huggingface.co,huggingface-ml-artifacts.s3.amazonaws.com"
+export NO_PROXY="${NO_PROXY:+$NO_PROXY,}huggingface.co,.huggingface.co,cdn-lfs.huggingface.co,huggingface-ml-artifacts.s3.amazonaws.com"
+# 同时限制 HF 下载并发连接数,避免即使走代理也打爆连接池
+export HF_HUB_DOWNLOAD_CONCURRENCY="${HF_HUB_DOWNLOAD_CONCURRENCY:-4}"
+echo "proxy bypass: no_proxy+=$no_proxy HF_HUB_DOWNLOAD_CONCURRENCY=$HF_HUB_DOWNLOAD_CONCURRENCY" >> "$LOG_DIR/meta.json"
+
 # ============ 启动前清理:扫旧的僵尸 worker / 残留 bg 进程 ============
 # 用户报反复僵尸 [bun] <defunct>(run2 / run1 多次留尸).
 # 这里只清"明确死了"的:对每个 runs/<run-id>/worker.pid,kill -0 不通 → 找它的子进程清理.

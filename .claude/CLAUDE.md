@@ -171,7 +171,9 @@ phase 开始时记 `started_at`,每次 poll 前 `$(date +%s) - $(date -d "$start
 - ❌ `--resume-download` flag(huggingface_hub 1.x 已移除,加了直接报错)— `hf download` **默认断点续传**
 - ❌ `HF_HUB_ENABLE_HF_TRANSFER=1`(已废弃 FutureWarning)— 用 `HF_XET_HIGH_PERFORMANCE=1`(Xet 后端,1.x 默认,`hf_xet` 随包捆绑)
 - ❌ 并发起多个 `hf download` 写同一 `--local-dir`(锁竞争 → 0 MB/s)— 起前先 `pgrep -f "hf download.*<repo>"`
+- ❌ 在代理环境下不绕代理就跑 `hf download`(代理连接池有限,Xet 多连接打爆 → 503 Too many open connections)
 - ✅ `HF_XET_HIGH_PERFORMANCE=1 hf download <repo> --local-dir <path> --token "$HF_TOKEN"`
+- ✅ `no_proxy` 加 `huggingface.co,.huggingface.co,cdn-lfs.huggingface.co` 或每次 `unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy` 绕代理(launch_worker.sh / daily.sh 已 env-level 设 `no_proxy`;SubAgent 每次 bash 也需 unset 双保险)
 - 若环境只有老 `huggingface-cli`,先 `pip install -U huggingface_hub`(已自带 `hf` 命令 + `hf_xet`)
 
 ### R8. Phase 标记 — 每个 SubAgent 进出都必须 echo 一行可 grep 标记
@@ -298,6 +300,13 @@ fetch 场景额外字段:`repo`, `local_dir`, `bytes`。
 ## ChangeLog
 
 > 本节回填 R1-R9 的引入来源 + D1-D7 文档维护规则。每条规则都对应一个 fix.md(架构改善事实链)。规则见 [docs/superpowers/specs/2026-05-27-spec-plan-governance.md](../docs/superpowers/specs/2026-05-27-spec-plan-governance.md) §3.3。
+
+- **2026-06-08** — R7 加代理绕过(no_proxy + unset proxy)
+  - 变更类型: 反模式 + 约束(R7 扩充)
+  - 影响范围: R7 段 + `cron/launch_worker.sh` / `cron/daily.sh` + `fetch-weights/SKILL.md`
+  - 动机: 公司代理连接池有限,Xet 多连接打爆代理 → 503 Too many open connections,Magenta RealTime fetch 卡死 34MB/15.5GB
+  - 证据: [docs/superpowers/fixes/2026-06-08-proxy-hf-download-503-fix.md](../docs/superpowers/fixes/2026-06-08-proxy-hf-download-503-fix.md)
+  - 验证: ⬜ 待验证(重跑 magenta-realtime fetch 阶段)
 
 - **2026-06-02** — 加 D1-D7 文档维护规则(从 spec-plan-governance / fix-records-governance 提炼为硬规则)
   - 变更类型: 规则(D1-D7 新增)
