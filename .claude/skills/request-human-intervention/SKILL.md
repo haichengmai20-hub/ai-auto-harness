@@ -42,7 +42,7 @@ allowed-tools: [Read, Write, Bash]
 
 ## 上下文
 - workspace: `workspace/<slug>/`
-- trace: `runs/<run-id>/`
+- trace: `workspace/<slug>/runs/<run-id>/`(legacy 全局 `runs/<run-id>/`)
 - state: <state.json 摘要>
 
 ---

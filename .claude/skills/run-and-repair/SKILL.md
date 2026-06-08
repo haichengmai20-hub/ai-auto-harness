@@ -29,7 +29,7 @@ echo "=== PHASE_START phase=run-and-repair slug=$SLUG run_id=$RUN_ID ts=$(date -
 
 每次修复都同时:
 1. 把修复尝试 append 一行到 `fixes.log`(给后续审计用,人能看)
-2. 把详细决策 append 到 `runs/$RUN_ID/decisions.md`(本次 cron 内的决策上下文)
+2. 把详细决策 append 到 `$RUN_DIR/decisions.md`(本次 cron 内的决策上下文;`$RUN_DIR` = `${AI_HARNESS_RUN_DIR:-runs/$RUN_ID}`,slug 已知时即 `workspace/<slug>/runs/<id>/`)
 
 ## 你的输入(主 agent 传入)
 
@@ -181,7 +181,7 @@ PID=$(cat "$WORKSPACE/.cache/run.pid" 2>/dev/null)
 echo "$(date -Iseconds) round=$ROUND error=CUDA_OOM fix=batch_size_4_to_1 file=configs/inference.yaml" >> "$WORKSPACE/logs/fixes.log"
 ```
 
-2. 详细决策 append 到 `runs/$RUN_ID/decisions.md`(本次 cron 内的上下文):
+2. 详细决策 append 到 `$RUN_DIR/decisions.md`(本次 cron 内的上下文;`$RUN_DIR` = `${AI_HARNESS_RUN_DIR:-runs/$RUN_ID}`):
 ```markdown
 - 2026-05-19T11:20 by runner-agent (round 1/3): 检测到 CUDA OOM(stderr 含 "CUDA out of memory"),把 configs/inference.yaml 的 batch_size 从 4 改成 1。期望重跑通过。
 ```

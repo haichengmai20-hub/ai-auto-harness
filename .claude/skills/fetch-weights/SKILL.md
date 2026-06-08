@@ -47,7 +47,7 @@ echo "=== PHASE_START phase=fetch-weights slug=$SLUG run_id=$RUN_ID ts=$(date -I
 }
 ```
 
-## 第 0 步:环境变量 + token 校验(每次跑 bash 前)
+## 第 0 步:环境变量 + DEST 校验 + token 校验(每次跑 bash 前)
 
 ```bash
 # launch_worker.sh 已 env-level 设了 HF_HOME / HF_HUB_CACHE / TRANSFORMERS_CACHE,
@@ -63,6 +63,12 @@ export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$WORKSPACE/.cache/transformers}
 export HF_HUB_DISABLE_XET=1
 export HF_HUB_DOWNLOAD_CONCURRENCY="${HF_HUB_DOWNLOAD_CONCURRENCY:-2}"
 echo "HF download: XET=disabled CONCURRENCY=$HF_HUB_DOWNLOAD_CONCURRENCY (proxy-safe)" >> "$LOG"
+
+# 🔴 DEST 路径校验(2026-06-08-fetch-dest-path-not-injected-fix):
+# 主 agent Task() prompt 应显式传入 dest_path_template;
+# 若未传入,则 fallback 到默认模板。禁止自拼其他路径。
+DEST_TEMPLATE="${dest_path_template:-\$WORKSPACE/.cache/hf_models/\$REPO}"
+echo "DEST template: $DEST_TEMPLATE (from prompt or fallback)" >> "$LOG"
 
 # 首次尝试用普通 HTTP 后端(非 Xet);若仍卡死,第 4 步检查磁盘/网络
 
@@ -207,8 +213,10 @@ tail -30 "$WORKSPACE/logs/fetch_weights.log"
 ## 第 5 步:时间预算判定(跨 cron 接续核心)
 
 ```bash
-# 主 agent 启动 → 现在多久了
-META_START=$(jq -r .started_at "runs/$RUN_ID/meta.json")
+# 主 agent 启动 → 现在多久了($RUN_DIR = ${AI_HARNESS_RUN_DIR:-runs/$RUN_ID},
+# slug 已知时即 workspace/<slug>/runs/<id>;Fix: 2026-06-08-run-dir-into-workspace)
+RUN_DIR="${AI_HARNESS_RUN_DIR:-runs/$RUN_ID}"
+META_START=$(jq -r .started_at "$RUN_DIR/meta.json")
 ELAPSED_SEC=$(( $(date +%s) - $(date -d "$META_START" +%s) ))
 ```
 
@@ -349,6 +357,12 @@ echo "=== PHASE_END   phase=fetch-weights slug=$SLUG status=done ts=$(date -Isec
   - 影响范围: 硬规则 8(修正) / 第 0 步 env export / 第 2 步 setsid 下载块 / 反模式段
   - 动机: 公司代理连接池有限,Xet 多连接打爆代理 → 503；实测本机无直连外网能力(unset proxy → Network is unreachable),改为禁 Xet + 降并发走代理
   - 证据: [fixes/2026-06-08-proxy-hf-download-503-fix.md](../../../docs/superpowers/fixes/2026-06-08-proxy-hf-download-503-fix.md)
+  - 验证: ⬜ 待验证(重跑 magenta-realtime fetch 阶段)
+- **2026-06-08** — DEST 路径显式注入:第 0 步加 DEST 校验,主 agent Task() prompt 传入 dest_path_template
+  - 变更类型: 流程 / 约束
+  - 影响范围: 第 0 步 DEST 校验 / auto-deploy/SKILL.md fetch dispatch prompt / auto-daily/SKILL.md fetch dispatch prompt
+  - 动机: magenta-realtime 实测 5 个 hf download 进程拼出 3 种不同 --local-dir 路径,SKILL.md 规定的 .cache/hf_models/$REPO 没人用;根因是 Task() prompt 未传 DEST,SubAgent 自拼
+  - 证据: [fixes/2026-06-08-fetch-dest-path-not-injected-fix.md](../../../docs/superpowers/fixes/2026-06-08-fetch-dest-path-not-injected-fix.md)
   - 验证: ⬜ 待验证(重跑 magenta-realtime fetch 阶段)
 - ❌ 不要 wait 一个 bg shell — poll
 - ❌ 不要不 export `HF_HOME` 等就跑下载 — 会污染 ~/.cache/huggingface

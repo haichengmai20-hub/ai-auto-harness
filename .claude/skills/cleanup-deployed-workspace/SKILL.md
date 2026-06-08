@@ -12,11 +12,16 @@ agent: cleanup-agent
 - **日志**:`$WORKSPACE/logs/cleanup.log` — 每条删除/保留 + 总结
 - **结果**:`$WORKSPACE/results/cleanup.json` — return schema
 - **state 更新**:`$WORKSPACE/state.json` — `phase: "done" → "archived"`,加 `archived_at` + `freed_bytes`
-- **决策**:`runs/$RUN_ID/decisions.md` — append 一行
+- **决策**:`$RUN_DIR/decisions.md` — append 一行(`$RUN_DIR` = `${AI_HARNESS_RUN_DIR:-runs/$RUN_ID}`,见 init)
 
 ```bash
 mkdir -p "$WORKSPACE/logs" "$WORKSPACE/results"
 LOG="$WORKSPACE/logs/cleanup.log"
+# run 目录:launcher 注入 AI_HARNESS_RUN_DIR(slug 已知时 = workspace/<slug>/runs/<id>),
+# 回退到全局 runs/$RUN_ID。后续 trace 校验 + run-cache 清理都用 $RUN_DIR。
+# (Fix: 2026-06-08-run-dir-into-workspace)
+HARNESS_ROOT="${HARNESS_ROOT:-/root/ai-auto-harness}"
+RUN_DIR="${AI_HARNESS_RUN_DIR:-$HARNESS_ROOT/runs/$RUN_ID}"
 echo "==== cleanup start at $(date -Iseconds) ====" >> "$LOG"
 # R8: PHASE_START/END 必须同时写到 stdout(ndjson 监控)和 cleanup.log(审计)
 echo "=== PHASE_START phase=cleanup slug=$SLUG run_id=$RUN_ID ts=$(date -Iseconds) ===" | tee -a "$LOG"
@@ -73,7 +78,7 @@ esac
 #### G2: trace 完整校验
 
 ```bash
-TRACE_DIR="runs/$RUN_ID"
+TRACE_DIR="$RUN_DIR"
 if [ ! -d "$TRACE_DIR" ]; then
     echo "REFUSED G2: trace 目录不存在: $TRACE_DIR" >> "$LOG"
     SKIPPED=true
@@ -155,7 +160,7 @@ venv .cache hf_cache repo weights
 注:
 - `.cache` 和 `hf_cache` 都列入是因为不同 launch_worker 版本环境变量(`HF_HOME` / `PIP_CACHE_DIR`)落点可能不同。两个都尝试,不存在的标 NOT EXIST 跳过。
 - `weights` 列入是因为 fetch-weights 阶段下载的模型权重通常放在 `workspace/<slug>/weights/` 或 `workspace/<slug>/repo/weights/`,这是可重建产物(可重新 `hf download`)。
-- `runs/<run-id>/.cache/`(本 run 的 launch_worker isolated cache)由**第 2.5 步**独立处理 — **只清本 run 的**,不递归清其他 run 的 cache(R1 隔离)。
+- `$RUN_DIR/.cache/`(本 run 的 launch_worker isolated cache,slug 已知时即 `workspace/<slug>/runs/<id>/.cache/`)由**第 2.5 步**独立处理 — **只清本 run 的**,不递归清其他 run 的 cache(R1 隔离)。
 
 ```bash
 FREED_BYTES=0
@@ -212,11 +217,11 @@ else
 fi
 ```
 
-### 第 2.5 步:清本 run 的 isolated cache(runs/$RUN_ID/.cache/)
+### 第 2.5 步:清本 run 的 isolated cache(`$RUN_DIR/.cache/`)
 
-launch_worker.sh 为每个 cron run 创建一个 isolated cache 在 `runs/$RUN_ID/.cache/`(用 `HF_HOME` / `PIP_CACHE_DIR` env 隔离)。这部分 launch_worker 自己不清,长期积累可能十几 GB(实测 13G+9G 残留)。
+launch_worker.sh 为每个 run 创建一个 isolated cache 在 `$RUN_DIR/.cache/`(slug 已知时即 `workspace/<slug>/runs/<id>/.cache/`,用 `HF_HOME` / `PIP_CACHE_DIR` env 隔离)。这部分 launch_worker 自己不清,长期积累可能十几 GB(实测 13G+9G 残留)。
 
-**边界严格**:只清**本 run** 的 `runs/$RUN_ID/.cache/`,**绝不**递归清其他 run 的 cache(那是别人 run 的产物,R1 隔离)。
+**边界严格**:只清**本 run** 的 `$RUN_DIR/.cache/`,**绝不**递归清其他 run 的 cache(那是别人 run 的产物,R1 隔离)。
 
 ```bash
 RUN_CACHE_FREED_BYTES=0
@@ -229,11 +234,13 @@ elif [[ "$RUN_ID" == *..* || "$RUN_ID" == */* ]]; then
     echo "REFUSED run-cache: RUN_ID 含 ../ 或 /,拒绝清理 (RUN_ID=$RUN_ID)" >> "$LOG"
 else
     HARNESS_ROOT="${HARNESS_ROOT:-/root/ai-auto-harness}"
-    RUN_CACHE="$HARNESS_ROOT/runs/$RUN_ID/.cache"
+    # RUN_DIR 已在 init 解析(${AI_HARNESS_RUN_DIR:-$HARNESS_ROOT/runs/$RUN_ID});
+    # cache 在 $RUN_DIR/.cache(新结构 = workspace/<slug>/runs/<id>/.cache,legacy = runs/<id>/.cache)
+    RUN_CACHE="$RUN_DIR/.cache"
 
-    # 必须精确前缀,防变量空时清根
+    # 必须精确前缀,防变量空时清根:RUN_ID 已校验无 ../ 和 /,只接受这两种合法形态
     case "$RUN_CACHE" in
-        "$HARNESS_ROOT/runs/$RUN_ID/.cache")
+        "$HARNESS_ROOT/runs/$RUN_ID/.cache"|"$HARNESS_ROOT"/workspace/*/runs/"$RUN_ID"/.cache)
             if [ -d "$RUN_CACHE" ]; then
                 RC_SIZE_BYTES=$(du -sb "$RUN_CACHE" 2>/dev/null | awk '{print $1}')
                 RC_SIZE_HUMAN=$(du -sh "$RUN_CACHE" 2>/dev/null | awk '{print $1}')
@@ -267,7 +274,7 @@ else
             }')
             ;;
         *)
-            echo "REFUSED run-cache: 路径不在 $HARNESS_ROOT/runs/$RUN_ID/.cache (拒绝)" >> "$LOG"
+            echo "REFUSED run-cache: 路径不在 $HARNESS_ROOT/runs/$RUN_ID/.cache 或 $HARNESS_ROOT/workspace/*/runs/$RUN_ID/.cache (拒绝,RUN_CACHE=$RUN_CACHE)" >> "$LOG"
             ;;
     esac
 fi
@@ -344,9 +351,9 @@ JSON"
 
 # decisions.md append
 if [ "$DRY_RUN" = "true" ]; then
-    echo "- $(date -Iseconds) by cleanup-agent: DRY-RUN would free $FREED_HUMAN (${REMOVED[*]})" >> "runs/$RUN_ID/decisions.md"
+    echo "- $(date -Iseconds) by cleanup-agent: DRY-RUN would free $FREED_HUMAN (${REMOVED[*]})" >> "$RUN_DIR/decisions.md"
 else
-    echo "- $(date -Iseconds) by cleanup-agent: freed $FREED_HUMAN, archived $SLUG" >> "runs/$RUN_ID/decisions.md"
+    echo "- $(date -Iseconds) by cleanup-agent: freed $FREED_HUMAN, archived $SLUG" >> "$RUN_DIR/decisions.md"
 fi
 
 echo "==== cleanup end at $(date -Iseconds) ====" >> "$LOG"
@@ -432,7 +439,7 @@ dry_run case(注意字段名是 `would_remove`,不是 `removed`):
 - ❌ **绝不**在 dry_run=true 时真删 — 只写 "would rm" 日志
 - ❌ **绝不**漏写 `=== PHASE_END phase=cleanup ... ===` 到 cleanup.log(P4-1 L1 实测漏过)— **必须** `| tee -a "$LOG"`
 - ❌ **绝不**在 dry_run 模式输出 `removed` 字段 — 用 `would_remove` 字段(P4-2 语义清晰)
-- ❌ **绝不**递归清 `runs/*/.cache/`(其他 run 的 cache,R1 隔离);**只清本 run 的** `runs/$RUN_ID/.cache/`,见第 2.5 步
+- ❌ **绝不**递归清 `runs/*/.cache/` 或 `workspace/*/runs/*/.cache/`(其他 run 的 cache,R1 隔离);**只清本 run 的** `$RUN_DIR/.cache/`,见第 2.5 步
 - ❌ **绝不**修问题或重跑 — cleanup 只清不修(出错就写 pending_human,主 agent 处理)
 
 ## 我做错了什么?常见诱惑

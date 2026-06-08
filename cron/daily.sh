@@ -18,12 +18,19 @@ CLAUDE_CONFIG_DIR="${CLAUDE_HAHA_CONFIG_DIR:-$HARNESS_ROOT/.claude-haha}"
 cd "$HARNESS_ROOT"
 [ -f .env ] && set -a && source .env && set +a
 
+# 🔴 auto-daily cron 在 launch 时还不知道 slug(由 auto-daily skill 动态 pick),
+# 因此 LOG_DIR 保持全局 runs/cron-<ts>,作为唯一合法的"预挑暂存"目录(N=1,无跨项目混杂)。
+# slug 已知后 SubAgent 的双写仍走 $AI_HARNESS_RUN_DIR(= 本 cron 目录)。
+# (Fix: 2026-06-08-run-dir-into-workspace §已知偏差 1)
 LOG_DIR="$HARNESS_ROOT/runs/cron-$(date +%Y-%m-%d-%H%M%S)"
 mkdir -p "$LOG_DIR"
 
 # ============ run-id 注册 + hook_state 初始化 ============
 RUN_ID=$(basename "$LOG_DIR")
-echo "$RUN_ID" > "$HARNESS_ROOT/runs/.current_run_id"
+echo "$RUN_ID" > "$(dirname "$LOG_DIR")/.current_run_id"
+# 导出完整 run 目录路径给 hook(权威),hook 不必自拼 runs/$RUN_ID。
+export AI_HARNESS_RUN_ID="$RUN_ID"
+export AI_HARNESS_RUN_DIR="$LOG_DIR"
 # daily.sh 不知道 slug(由 auto-daily skill pick),hook_state.own_slug 留空;
 # 跨 workspace 检测在 SubAgent dispatch 后由 SubAgent 自己更新 hook_state
 python3 - "$LOG_DIR/.hook_state.json" <<'PYEOF'
@@ -69,9 +76,12 @@ export HF_HUB_DOWNLOAD_CONCURRENCY="${HF_HUB_DOWNLOAD_CONCURRENCY:-2}"
 # ============ 启动前清理僵尸 worker ============
 python3 - <<'PYEOF' 2>>"$LOG_DIR/cleanup.log" || true
 import os, pathlib, signal, time
-runs = pathlib.Path("/root/ai-auto-harness/runs")
+root = pathlib.Path("/root/ai-auto-harness")
+# 扫新(workspace/<slug>/runs/)+ legacy(全局 runs/)两处 worker.pid。
+# (Fix: 2026-06-08-run-dir-into-workspace)
+worker_pids = list((root / "runs").glob("*/worker.pid")) + list(root.glob("workspace/*/runs/*/worker.pid"))
 cleaned = []
-for wpid_file in runs.glob("*/worker.pid"):
+for wpid_file in worker_pids:
     try:
         pid = int(wpid_file.read_text().strip())
     except Exception:
@@ -133,6 +143,8 @@ PROMPT_EOF
 # ============ 启动 worker ============
 CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
 IS_SANDBOX=1 \
+AI_HARNESS_RUN_ID="$RUN_ID" \
+AI_HARNESS_RUN_DIR="$AI_HARNESS_RUN_DIR" \
 HF_HOME="$HF_HOME" \
 HF_HUB_CACHE="$HF_HUB_CACHE" \
 TRANSFORMERS_CACHE="$TRANSFORMERS_CACHE" \

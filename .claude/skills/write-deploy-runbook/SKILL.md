@@ -12,7 +12,7 @@ agent: runbook-agent
 - **runbook 文件**:`reports/runbooks/<slug>-<YYYY-MM-DD>.md` — AI 可消费的部署手册
 - **日志**:`$WORKSPACE/logs/runbook.log` — 抽取过程的 bash stdout/stderr
 - **结果**:`$WORKSPACE/results/runbook.json` — return schema
-- **决策**:`runs/$RUN_ID/decisions.md` — append 一行(类似 verify-agent 的模式)
+- **决策**:`$RUN_DIR/decisions.md` — append 一行(类似 verify-agent 的模式;`$RUN_DIR` = `${AI_HARNESS_RUN_DIR:-runs/$RUN_ID}`,见第 1 步)
 
 ```bash
 mkdir -p "$WORKSPACE/logs" "$WORKSPACE/results" reports/runbooks
@@ -73,6 +73,9 @@ TEMPLATE=$(cat /root/ai-auto-harness/.claude/skills/write-deploy-runbook/_templa
 SLUG="$1"        # 从主 agent 传入
 WORKSPACE="$2"
 RUN_ID="$3"
+# run 目录:launcher 注入 AI_HARNESS_RUN_DIR(slug 已知时 = workspace/<slug>/runs/<id>),
+# 回退到全局 runs/$RUN_ID。(Fix: 2026-06-08-run-dir-into-workspace)
+RUN_DIR="${AI_HARNESS_RUN_DIR:-runs/$RUN_ID}"
 
 # 抽 frontmatter 字段
 STATE_JSON="$WORKSPACE/state.json"
@@ -81,9 +84,9 @@ FETCH_JSON="$WORKSPACE/results/fetch.json"     # 或 fetch-weights.json,看实�
 INSTALL_JSON="$WORKSPACE/results/install.json"  # 或 install-env.json
 RUN_JSON="$WORKSPACE/results/run.json"          # 或 run-and-repair.json
 VERIFY_JSON="$WORKSPACE/results/verify.json"
-NDJSON="runs/$RUN_ID/harness.stdout.ndjson"
+NDJSON="$RUN_DIR/harness.stdout.ndjson"
 FIXES_LOG="$WORKSPACE/logs/fixes.log"
-DECISIONS_MD="runs/$RUN_ID/decisions.md"
+DECISIONS_MD="$RUN_DIR/decisions.md"
 
 # 检查关键文件存在(缺失就降级)
 for f in "$STATE_JSON" "$NDJSON"; do
@@ -104,7 +107,7 @@ fi
 **降级抽取格式约定**(P3-1):
 - 优先级 1:`logs/fixes.log` — 每行 `<phase> <ts> <error> -> <fix>` 直接 grep
 - 优先级 2:若 fixes.log 不存在,从 `results/run-and-repair.json` 的 `.repairs[]` 和 `results/install.json` 的 `.fixes_applied[]` 数组用 jq 抽,**LLM 从 JSON 推导 4 字段**(触发条件 / 根因 / 修复 / 验证)— 不是直接 grep
-- 优先级 3:两者都缺,只从 `runs/$RUN_ID/decisions.md` 抽决策记录,fragment 不完整时标 `traps_documented: 0`
+- 优先级 3:两者都缺,只从 `$RUN_DIR/decisions.md` 抽决策记录,fragment 不完整时标 `traps_documented: 0`
 
 ### 第 2 步:生成 frontmatter + 前置要求 + 成本摘要(纯填空)
 
@@ -135,14 +138,14 @@ audio_output_sec: <from verify.json.evidence.audio_info.duration_seconds,若有>
 | - | 任一资源 preflight 拒(GPU/磁盘) | `blocked_<reason>` |
 
 **`total_cost_usd` 填写规则**(Fix #22: 交互式 session 无 cost 数据):
-- 优先从 `runs/$RUN_ID/harness.stdout.ndjson` 的 `result` 事件取 `total_cost_usd`
-- 若 ndjson 不存在(交互式 session),从 `runs/$RUN_ID/trajectory.json` 的 result 事件取
+- 优先从 `$RUN_DIR/harness.stdout.ndjson` 的 `result` 事件取 `total_cost_usd`
+- 若 ndjson 不存在(交互式 session),从 `$RUN_DIR/trajectory.json` 的 result 事件取
 - 若两者都没有(纯交互式 session 无 cost 追踪),**写 `null`**(不是 0.0) — 0.0 暗示"免费"而实际是"数据不可用"
 - **严禁**写 `0.0` 表示"数据不可用" — `0.0` 只在确实 $0 成本时使用
 
 **`duration_min` 填写规则**(Fix: duration 预估严重不准):
 - 优先从 `state.json.started_at` 和 `state.json.updated_at` 计算实际耗时(分钟)
-- 若 `started_at` 不存在,从 `runs/$RUN_ID/meta.json.started_at` 取
+- 若 `started_at` 不存在,从 `$RUN_DIR/meta.json.started_at` 取
 - 若 `updated_at` 不存在,用当前时间减 `started_at`
 - **严禁**写 AI prompt 节里的"预计耗时"(那是给复用者的预估,不是本次实际耗时)
 - 实际耗时和 AI prompt 里的"预计耗时"是两个不同概念,不要混淆
@@ -268,7 +271,7 @@ cat > "$WORKSPACE/results/runbook.json" <<JSON
 }
 JSON
 
-echo "- $(date -Iseconds) by runbook-agent: wrote $RUNBOOK_PATH ($status, $traps_documented traps)" >> "runs/$RUN_ID/decisions.md"
+echo "- $(date -Iseconds) by runbook-agent: wrote $RUNBOOK_PATH ($status, $traps_documented traps)" >> "$RUN_DIR/decisions.md"
 echo "==== runbook end at $(date -Iseconds) ====" >> "$LOG"
 echo "=== PHASE_END   phase=runbook slug=$SLUG status=done ts=$(date -Iseconds) ==="
 ```
@@ -289,7 +292,7 @@ echo "=== PHASE_END   phase=runbook slug=$SLUG status=done ts=$(date -Iseconds) 
 ```
 
 **主 agent** 把这个 return 用于:
-1. 写 `runs/$RUN_ID/runbook.json`(本次快照)
+1. 写 `$RUN_DIR/runbook.json`(本次快照,`$RUN_DIR` = `${AI_HARNESS_RUN_DIR:-runs/$RUN_ID}`)
 2. 更新 `state.json.runbook_path = <path>`
 3. 传给 `write-recommendation` 的 `runbook_paths` 参数,日报里加链接
 4. 传给 `cleanup-agent` 做 G3 防护(verify runbook 已写)

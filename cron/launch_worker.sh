@@ -17,8 +17,12 @@
 # 例:
 #   bash cron/launch_worker.sh \
 #     "请使用 auto-deploy skill 部署 https://github.com/tencent-ailab/SongGeneration (slug=song-generation)" \
-#     /root/ai-auto-harness/runs/manual-songgen-$(date +%s) \
+#     /root/ai-auto-harness/workspace/song-generation/runs/manual-songgen-$(date +%s) \
 #     song-generation
+#
+# 🔴 LOG_DIR 约定(Fix: 2026-06-08-run-dir-into-workspace):slug 已知时 LOG_DIR
+# 必须是 workspace/<slug>/runs/<run-id>(run 级数据归到项目下);本脚本据此导出
+# AI_HARNESS_RUN_DIR 给 hook,并把 .current_run_id 写到 LOG_DIR 的父目录。
 #
 # 第 3 参数 slug 可选:若提供,会写入 hook_state.own_slug,让 PostToolUse hook 做 R1
 # workspace 隔离检测(任何访问其他 workspace 都会触发 warning 注入)。
@@ -54,12 +58,17 @@ mkdir -p "$LOG_DIR"
 
 # ============ run-id 注册 + hook_state 初始化(R1/R4 hook 用)============
 RUN_ID=$(basename "$LOG_DIR")
-echo "$RUN_ID" > "$HARNESS_ROOT/runs/.current_run_id"
-# 🔴 导出给 claude-haha → SessionStart/PostToolUse hook 子进程继承,作为权威 run-id。
-# SessionStart hook 会复用它(而非自造新 id 覆盖 .current_run_id),
+# .current_run_id 落在 LOG_DIR 的父目录(slug 已知时 = workspace/<slug>/runs/.current_run_id),
+# 各项目独立,不再全局单文件互相踩。(Fix: 2026-06-08-run-dir-into-workspace)
+RUNS_PARENT="$(dirname "$LOG_DIR")"
+echo "$RUN_ID" > "$RUNS_PARENT/.current_run_id"
+# 🔴 导出给 claude-haha → SessionStart/PostToolUse hook 子进程继承,作为**权威 run 目录**。
+# 有了完整路径,hook 不必用 runs/$RUN_ID 自拼(那样无法把目录落到 workspace/<slug>/runs/)。
+# SessionStart hook 见 AI_HARNESS_RUN_DIR 即复用,绝不自造新 id 覆盖 .current_run_id,
 # 否则 hook 把 transcript/纪律计数写进孤儿目录,本 run 目录永远 0 计数。
-# (Fix: 2026-06-02-hook-runid-clobber-fix)
+# (Fix: 2026-06-02-hook-runid-clobber-fix + 2026-06-08-run-dir-into-workspace)
 export AI_HARNESS_RUN_ID="$RUN_ID"
+export AI_HARNESS_RUN_DIR="$LOG_DIR"
 python3 - "$LOG_DIR/.hook_state.json" "$SLUG" <<'PYEOF'
 import json, sys, time
 state_path, slug = sys.argv[1], sys.argv[2]
@@ -117,9 +126,12 @@ echo "HF download: XET=disabled CONCURRENCY=$HF_HUB_DOWNLOAD_CONCURRENCY (proxy-
 python3 - <<'PYEOF' >> "$LOG_DIR/meta.json" 2>&1 || true
 import os, pathlib, signal
 import subprocess
-runs = pathlib.Path("/root/ai-auto-harness/runs")
+root = pathlib.Path("/root/ai-auto-harness")
+# run 级目录现在落在 workspace/<slug>/runs/<run-id>/(新)和 legacy 全局 runs/<run-id>/(旧/cron 暂存)。
+# 两处都扫 worker.pid。(Fix: 2026-06-08-run-dir-into-workspace)
+worker_pids = list((root / "runs").glob("*/worker.pid")) + list(root.glob("workspace/*/runs/*/worker.pid"))
 cleaned = []
-for run_dir in runs.glob("*/worker.pid"):
+for run_dir in worker_pids:
     try:
         pid = int(run_dir.read_text().strip())
     except Exception:
@@ -135,8 +147,6 @@ for run_dir in runs.glob("*/worker.pid"):
         pass
     # PID 死了:看看 .cache/*.pid 有没有它起的 bg 进程
     cache_dir = run_dir.parent / ".cache"
-    if not cache_dir.exists():
-        cache_dir = run_dir.parent.parent / "workspace" / run_dir.parent.name.replace("songgen-e2e-", "") / ".cache"
     if cache_dir.exists():
         for pf in cache_dir.glob("*.pid"):
             try:
@@ -239,6 +249,7 @@ PROMPT_EOF
 CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
 IS_SANDBOX=1 \
 AI_HARNESS_RUN_ID="$RUN_ID" \
+AI_HARNESS_RUN_DIR="$AI_HARNESS_RUN_DIR" \
 HF_HOME="$HF_HOME" \
 HF_HUB_CACHE="$HF_HUB_CACHE" \
 TRANSFORMERS_CACHE="$TRANSFORMERS_CACHE" \

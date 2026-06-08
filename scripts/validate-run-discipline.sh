@@ -24,11 +24,18 @@ if [ -z "$ARG" ]; then
 fi
 
 # 解析 ndjson 路径 + run 目录
+# 优先把 ARG 当文件路径(launch_worker 传完整 ndjson 路径,位置无关);
+# 否则当 run_id,在 workspace/<slug>/runs/<id>(新)与全局 runs/<id>(legacy)两处查找。
+# (Fix: 2026-06-08-run-dir-into-workspace)
 if [ -f "$ARG" ]; then
     NDJSON="$ARG"
     RUN_DIR="$(dirname "$ARG")"
 else
     RUN_DIR="$HARNESS_ROOT/runs/$ARG"
+    if [ ! -f "$RUN_DIR/harness.stdout.ndjson" ]; then
+        WS_MATCH="$(ls -d "$HARNESS_ROOT"/workspace/*/runs/"$ARG" 2>/dev/null | head -1)"
+        [ -n "$WS_MATCH" ] && RUN_DIR="$WS_MATCH"
+    fi
     NDJSON="$RUN_DIR/harness.stdout.ndjson"
 fi
 

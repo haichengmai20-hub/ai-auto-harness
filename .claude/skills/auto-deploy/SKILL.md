@@ -38,10 +38,17 @@ allowed-tools: [Read, Write, Bash, Task, mcp__ai_daily_scan__*]
 HARNESS_ROOT="/root/ai-auto-harness"
 cd "$HARNESS_ROOT"
 
-RUN_ID="$(date +%Y-%m-%d-%H%M)-$$"
-mkdir -p "runs/$RUN_ID"
-echo "$RUN_ID" > "runs/.current_run_id"
-echo "{\"started_at\":\"$(date -Iseconds)\",\"run_id\":\"$RUN_ID\",\"trigger\":\"/auto-deploy\",\"url\":\"$ARGUMENTS\"}" > "runs/$RUN_ID/meta.json"
+# run 目录:launch_worker 启动时已注入 AI_HARNESS_RUN_DIR(= workspace/<slug>/runs/<id>),复用它;
+# 仅交互式直接跑 skill(无 launcher)才自造,此时 slug 未知,落全局 runs/<id>。
+# 后续所有 run 级双写都用 $RUN_DIR,不要再写 runs/$RUN_ID。
+# (Fix: 2026-06-08-run-dir-into-workspace)
+if [ -n "${AI_HARNESS_RUN_DIR:-}" ]; then
+    RUN_DIR="$AI_HARNESS_RUN_DIR"; RUN_ID="$(basename "$RUN_DIR")"; mkdir -p "$RUN_DIR"
+else
+    RUN_ID="$(date +%Y-%m-%d-%H%M)-$$"; RUN_DIR="runs/$RUN_ID"; mkdir -p "$RUN_DIR"
+    echo "$RUN_ID" > "runs/.current_run_id"
+fi
+echo "{\"started_at\":\"$(date -Iseconds)\",\"run_id\":\"$RUN_ID\",\"trigger\":\"/auto-deploy\",\"url\":\"$ARGUMENTS\"}" > "$RUN_DIR/meta.json"
 ```
 
 ### 任务 0.5:重复 URL / 既有 workspace 预检
@@ -178,9 +185,23 @@ hf_repos: {hf_repos}
 workspace_path: workspace/{SLUG}
 run_id: {RUN_ID}
 
-按 fetch-weights skill 跑完(用 hf download + HF_TOKEN + HF_XET_HIGH_PERFORMANCE=1;
-hf download 默认断点续传,不加 --resume-download)。
-绝不启动 pip install 或动其他 workspace。
+🔴 关键路径参数(必须使用,禁止自拼):
+dest_path_template: $WORKSPACE/.cache/hf_models/$REPO
+  → 每个 repo 的下载目标 = workspace/{SLUG}/.cache/hf_models/<org>/<repo>
+  → 例如 google/magenta-realtime-2 → workspace/{SLUG}/.cache/hf_models/google/magenta-realtime-2
+sentinel_dir: $WORKSPACE/.cache/handoff
+log_path: $WORKSPACE/logs/fetch_weights.log
+
+🔴 下载环境变量(每个 bash 必须 re-export):
+HF_HUB_DISABLE_XET=1
+HF_HUB_DOWNLOAD_CONCURRENCY=2
+HF_HOME=$WORKSPACE/.cache/huggingface
+--token "$HF_TOKEN" 显式传
+
+🔴 硬约束:
+- 用 hf download(不是 huggingface-cli),默认断点续传(不加 --resume-download)
+- 每个 repo 串行,起前 pgrep -f "hf download.*$REPO" 防并发
+- 绝不启动 pip install 或动其他 workspace
 """
     )
 
@@ -227,7 +248,7 @@ force_status: null
 RUNBOOK_PATH = RUNBOOK_RESULT.get("runbook_path")
 ```
 
-写完后双写落盘:`workspace/<slug>/results/runbook.json` + `runs/$RUN_ID/runbook.json`。
+写完后双写落盘:`workspace/<slug>/results/runbook.json` + `$RUN_DIR/runbook.json`(`$RUN_DIR` = `${AI_HARNESS_RUN_DIR:-runs/$RUN_ID}`,见任务 0)。
 
 ### 任务 4.6:cleanup workspace(仅 verify_passed=true)
 
@@ -349,3 +370,9 @@ fi
   - 影响范围: 任务 0.5 / 任务 1 / 任务 4 / 重复部署同一 URL
   - 动机: monitor 重复 launch 同一项目时,必须先读旧 `state.json` 接续,不能覆盖为新 intake
   - 验证: ⬜ 待验证(同 slug 非终态 fixture + /auto-deploy L1)
+- **2026-06-08** — fetch-agent Task() prompt 显式注入 DEST 路径模板 + 下载环境变量
+  - 变更类型: 约束 / 流程
+  - 影响范围: 任务 4 Phase 2 fetch-agent dispatch prompt
+  - 动机: magenta-realtime 实测 5 个 hf download 拼出 3 种不同 --local-dir,根因是 Task() prompt 未传 DEST,SubAgent 自拼
+  - 证据: [fixes/2026-06-08-fetch-dest-path-not-injected-fix.md](../../../docs/superpowers/fixes/2026-06-08-fetch-dest-path-not-injected-fix.md)
+  - 验证: ⬜ 待验证(重跑 magenta-realtime fetch 阶段)

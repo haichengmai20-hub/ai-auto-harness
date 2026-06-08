@@ -18,8 +18,8 @@
 
 ## 统计
 
-- **总计**: 33 条
-- **✅ 已闭环**: 21 条（#32 #33 toonflow-app e2e 闭环）
+- **总计**: 34 条
+- **✅ 已闭环**: 22 条（#34 run 目录归项目;#32 #33 toonflow-app e2e 闭环）
 - **🟡 部分落地**: 2 条（#30 fetch 完整性校验、#31 R9；均已补 committed 回归测试，待真实 e2e / 上游）
 - **❌ 未闭环**: 10 条
 - **P0**: 3 条
@@ -58,12 +58,13 @@
 
 ---
 
-## ✅ 已闭环（21 条 — 按时间倒序）
+## ✅ 已闭环（22 条 — 按时间倒序）
 
 > 最近修的排最前，方便回溯。
 
 | # | 级别 | 人话 | Fix 文件 | commit | 影响项目 |
 |---|---|---|---|---|---|
+| 34 | P1 | 每次跑的草稿全堆公共筐，改成按项目分柜 | [run-dir-into-workspace](2026-06-08-run-dir-into-workspace-fix.md) | `<本次>` | magenta-realtime |
 | 26 | **P0** | 信投进隔壁信箱了，R1/R4/R6/R9 从上线起从未在正确目录生效 | [hook-runid-clobber](2026-06-02-hook-runid-clobber-fix.md) | `3bb1280` | controlfoley |
 | 32 | P1 | 扫描到部署全链路从没真跑通过一次 | [scan-to-deploy-never-e2e-verified](2026-06-03-scan-to-deploy-never-e2e-verified-fix.md) | e2e 验证 | toonflow-app |
 | 33 | P2 | 打扫只比划没真扫，完工章还盖错了 | [cleanup-no-real-cleanup-and-state-mismatch](2026-06-03-cleanup-no-real-cleanup-and-state-mismatch-fix.md) | toonflow-app e2e | controlfoley |

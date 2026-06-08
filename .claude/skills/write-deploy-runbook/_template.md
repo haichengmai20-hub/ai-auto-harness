@@ -230,11 +230,11 @@ audio_output_sec: {{AUDIO_OUTPUT_SEC}}
 ## 6. 完整 trace 指针(可选追溯)
 
 - 工作区:`${HARNESS_ROOT}/workspace/{{SLUG}}/`
-- 本次 run 快照:`${HARNESS_ROOT}/runs/{{RUN_ID}}/`
-- 完整 ndjson 轨迹:`runs/{{RUN_ID}}/harness.stdout.ndjson`
+- 本次 run 快照:`${HARNESS_ROOT}/workspace/{{SLUG}}/runs/{{RUN_ID}}/`(legacy 全局 `runs/{{RUN_ID}}/`)
+- 完整 ndjson 轨迹:`workspace/{{SLUG}}/runs/{{RUN_ID}}/harness.stdout.ndjson`
 - 各 phase 落盘:`workspace/{{SLUG}}/{logs,results}/`
 - 修复日志:`workspace/{{SLUG}}/logs/fixes.log`
-- 决策记录:`runs/{{RUN_ID}}/decisions.md`
+- 决策记录:`workspace/{{SLUG}}/runs/{{RUN_ID}}/decisions.md`
 
 ---
 

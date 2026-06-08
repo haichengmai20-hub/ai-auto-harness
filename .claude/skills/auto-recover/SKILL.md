@@ -28,10 +28,15 @@ allowed-tools: [Read, Write, Bash, Task]
 ```bash
 HARNESS_ROOT="/root/ai-auto-harness"
 cd "$HARNESS_ROOT"
-RUN_ID="$(date +%Y-%m-%d-%H%M)-$$"
-mkdir -p "runs/$RUN_ID"
-echo "$RUN_ID" > "runs/.current_run_id"
-echo "{\"started_at\":\"$(date -Iseconds)\",\"run_id\":\"$RUN_ID\",\"trigger\":\"/auto-recover\"}" > "runs/$RUN_ID/meta.json"
+# 复用 launcher 注入的 run 目录;仅交互式才自造。run 级写入统一用 $RUN_DIR。
+# (Fix: 2026-06-08-run-dir-into-workspace)
+if [ -n "${AI_HARNESS_RUN_DIR:-}" ]; then
+    RUN_DIR="$AI_HARNESS_RUN_DIR"; RUN_ID="$(basename "$RUN_DIR")"; mkdir -p "$RUN_DIR"
+else
+    RUN_ID="$(date +%Y-%m-%d-%H%M)-$$"; RUN_DIR="runs/$RUN_ID"; mkdir -p "$RUN_DIR"
+    echo "$RUN_ID" > "runs/.current_run_id"
+fi
+echo "{\"started_at\":\"$(date -Iseconds)\",\"run_id\":\"$RUN_ID\",\"trigger\":\"/auto-recover\"}" > "$RUN_DIR/meta.json"
 ```
 
 ### 任务 1:扫 in_progress

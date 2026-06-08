@@ -4,8 +4,13 @@ set -e
 HARNESS_ROOT="/root/ai-auto-harness"
 cd "$HARNESS_ROOT"
 
-RUN_ID="${AI_HARNESS_RUN_ID:-$(cat "$HARNESS_ROOT/runs/.current_run_id" 2>/dev/null || echo "unknown")}"
-RUN_DIR="$HARNESS_ROOT/runs/$RUN_ID"
+# run 目录解析:完整路径优先(Fix: 2026-06-08-run-dir-into-workspace)。
+if [ -n "${AI_HARNESS_RUN_DIR:-}" ]; then
+    RUN_DIR="$AI_HARNESS_RUN_DIR"
+else
+    RUN_ID="${AI_HARNESS_RUN_ID:-$(cat "$HARNESS_ROOT/runs/.current_run_id" 2>/dev/null || echo "unknown")}"
+    RUN_DIR="$HARNESS_ROOT/runs/$RUN_ID"
+fi
 mkdir -p "$RUN_DIR"
 
 # Handoff sentinel audit: do not mutate workspace state here. This hook only
@@ -59,5 +64,7 @@ if [ -d .git ]; then
     fi
 fi
 
-# 清 7 天以上 runs
+# 清 7 天以上 runs(全局 legacy + 各项目 workspace/<slug>/runs/)
+# (Fix: 2026-06-08-run-dir-into-workspace)
 find runs/ -maxdepth 1 -mtime +7 -type d -exec rm -rf {} \; 2>/dev/null || true
+find workspace/*/runs/ -maxdepth 1 -mtime +7 -type d -exec rm -rf {} \; 2>/dev/null || true

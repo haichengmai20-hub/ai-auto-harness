@@ -61,19 +61,26 @@ workspace/<slug>/
     └── verify.json                 VerifyState
 ```
 
-### Run 级(每次 cron run 一份独立快照,审计用)
+### Run 级(每次 run 一份独立快照,审计用)— 归到项目下
+
+run 级数据落在**项目自己的** `workspace/<slug>/runs/<run-id>/`,不再堆在全局 `runs/`(各项目独立,R1 隔离自洽)。launcher(launch_worker.sh)启动时把完整路径经 `$AI_HARNESS_RUN_DIR` 注入,hook / skill 统一用 `$RUN_DIR`(= `${AI_HARNESS_RUN_DIR:-runs/$RUN_ID}`),不要再自拼 `runs/$RUN_ID`。
 
 ```
-runs/<run-id>/
+workspace/<slug>/runs/<run-id>/
+├── .current_run_id                 每个项目独立的当前 run 指针(不再全局单文件)
 ├── meta.json                       run 元数据
 ├── decisions.md                    主 agent + 各 SubAgent 写的关键决策
 ├── intake.json / fetch.json / ...  各 SubAgent 本次 run 的返回(快照,不覆写)
-└── transcript.jsonl                tool_use 流(--bare 模式下 skill 自己 append 写入)
+├── harness.stdout.ndjson           worker 事件流(launch_worker 产)
+├── transcript.jsonl                PostToolUse hook 落盘的 tool_use 流
+└── .cache/                         本 run 的 isolated cache(HF/pip/torch,cleanup 第 2.5 步清)
 ```
+
+**唯一例外**:`daily.sh`(auto-daily cron)在 launch 时还没 pick slug,其 worker 级目录暂存在全局 `runs/cron-<ts>/`(N=1,无跨项目混杂);slug 已知后 SubAgent 双写仍走 `$AI_HARNESS_RUN_DIR`(= 该 cron 目录)。
 
 **双写原则**:每个 SubAgent return 时**同时写两份**:
 - `workspace/<slug>/results/<phase>.json` — 覆写(最新)
-- `runs/<run-id>/<phase>.json` — append(本次 run 独立快照)
+- `$RUN_DIR/<phase>.json` — append(本次 run 独立快照,slug 已知时即 `workspace/<slug>/runs/<run-id>/<phase>.json`)
 
 日志只写 `workspace/<slug>/logs/<phase>.log`(累积 append,不覆写).
 
@@ -301,6 +308,13 @@ fetch 场景额外字段:`repo`, `local_dir`, `bytes`。
 ## ChangeLog
 
 > 本节回填 R1-R9 的引入来源 + D1-D7 文档维护规则。每条规则都对应一个 fix.md(架构改善事实链)。规则见 [docs/superpowers/specs/2026-05-27-spec-plan-governance.md](../docs/superpowers/specs/2026-05-27-spec-plan-governance.md) §3.3。
+
+- **2026-06-08** — run 级数据从全局 runs/ 移入 workspace/<slug>/runs/
+  - 变更类型: 结构 / 约束
+  - 影响范围: "落盘约定" Run 级段 + 双写原则 + `cron/{launch_worker,daily}.sh` + 3 hook + `scripts/validate-run-discipline.sh` + 10 SKILL.md
+  - 动机: run 级数据堆在全局 runs/ 跨项目混杂、与 R1 隔离矛盾、`.current_run_id` 全局单文件 N>1 互踩;改为按项目归档 + launcher 经 `$AI_HARNESS_RUN_DIR` 注入完整路径
+  - 证据: [docs/superpowers/fixes/2026-06-08-run-dir-into-workspace-fix.md](../docs/superpowers/fixes/2026-06-08-run-dir-into-workspace-fix.md)
+  - 验证: ✅ `bash -n` 全过 + skills `runs/$RUN_ID` 改 `$RUN_DIR` + 向后兼容(旧 launcher 无 RUN_DIR → fallback 全局)
 
 - **2026-06-08** — R7 加代理环境下载优化(禁 Xet + 降并发,非 unset proxy)
   - 变更类型: 反模式 + 约束(R7 扩充)

@@ -169,7 +169,7 @@ fi
 **禁止**:`pip install A &; pip install B &; wait`(并行写同一 venv 损坏 site-packages)
 **禁止**:把 pip 放 background(`run_in_background=true`)— pip 必须 foreground
 
-记录用的方案 + 任何失败到 `runs/$RUN_ID/decisions.md`.
+记录用的方案 + 任何失败到 `$RUN_DIR/decisions.md`(`$RUN_DIR` = `${AI_HARNESS_RUN_DIR:-runs/$RUN_ID}`,slug 已知时即 `workspace/<slug>/runs/<id>/`)。
 
 ### 第 4 步:torch sm_12 检测(5090 必做)
 

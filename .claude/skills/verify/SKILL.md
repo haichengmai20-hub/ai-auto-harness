@@ -202,9 +202,10 @@ GPU 利用低(< 1GB used 或全程 0% 利用)→ `passed=false, failed_at="gpu_u
        || { echo "FATAL verify.json .passed 必须是 boolean(true/false),不能是 null/string" >&2; exit 1; }
    ```
 
-3. **append 一条到 `runs/$RUN_ID/decisions.md`**(同样用 bash echo / cat):
+3. **append 一条到 `$RUN_DIR/decisions.md`**(同样用 bash echo / cat;`$RUN_DIR` = `${AI_HARNESS_RUN_DIR:-runs/$RUN_ID}`,slug 已知时即 `workspace/<slug>/runs/<id>/`):
    ```bash
-   echo "- $(date -Iseconds) by verify-agent: startup ✓ / smoke ✓ / gpu_util ✓ → PASS" >> "runs/$RUN_ID/decisions.md"
+   RUN_DIR="${AI_HARNESS_RUN_DIR:-runs/$RUN_ID}"
+   echo "- $(date -Iseconds) by verify-agent: startup ✓ / smoke ✓ / gpu_util ✓ → PASS" >> "$RUN_DIR/decisions.md"
    ```
 
 4. **结束日志**:
@@ -213,7 +214,7 @@ GPU 利用低(< 1GB used 或全程 0% 利用)→ `passed=false, failed_at="gpu_u
    echo "=== PHASE_END   phase=verify slug=$SLUG status=done ts=$(date -Iseconds) ===" | tee -a "$LOG"
    ```
 
-主 agent 会另外把 return JSON 也写到 `runs/$RUN_ID/verify.json`(本次 cron 快照).
+主 agent 会另外把 return JSON 也写到 `$RUN_DIR/verify.json`(本次 cron 快照,`$RUN_DIR` = `${AI_HARNESS_RUN_DIR:-runs/$RUN_ID}`).
 
 ## 🔴 反模式(L1 实测出现过的真实问题,**严禁重演**)
 

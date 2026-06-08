@@ -4,22 +4,29 @@ set -e
 HARNESS_ROOT="/root/ai-auto-harness"
 cd "$HARNESS_ROOT"
 
-# run-id 落盘(post-tool-use 会读)。
-# 🔴 关键:若 launch_worker.sh 已建立 run-id(经 $AI_HARNESS_RUN_ID 注入,或
-# .current_run_id 指向一个含 meta.json 的 launch_worker run),则**复用**它,
-# **绝不**用新生成的 id 覆盖 — 否则 PostToolUse hook 会把 transcript/计数写进
-# session 自造的孤儿 run 目录,launch_worker 建的 run 目录永远 0 计数、无 transcript。
-# (Fix: 2026-06-02-hook-runid-clobber-fix)
-EXISTING_RUN_ID="$(cat runs/.current_run_id 2>/dev/null || echo "")"
-if [ -n "${AI_HARNESS_RUN_ID:-}" ]; then
-    RUN_ID="$AI_HARNESS_RUN_ID"                       # launch_worker 经 env 注入,最高优先级
-elif [ -n "$EXISTING_RUN_ID" ] && [ -f "runs/$EXISTING_RUN_ID/meta.json" ]; then
-    RUN_ID="$EXISTING_RUN_ID"                          # launch_worker 已建(有 meta.json),复用
+# run 目录落盘(post-tool-use 会读)。
+# 🔴 关键(Fix: 2026-06-02-hook-runid-clobber + 2026-06-08-run-dir-into-workspace):
+#   - worker 启动(AI_HARNESS_RUN_DIR 已注入)→ 复用其完整路径,且**绝不写** .current_run_id。
+#     env 是权威通道,worker 的 post-tool-use 也读 env;不写文件,交互式 monitor 会话就无从覆盖。
+#   - 旧 launcher(只有 AI_HARNESS_RUN_ID)→ 复用全局 runs/$id,向后兼容。
+#   - 交互式 session(都没有)→ 自造一个,写全局 .current_run_id 供自己的 post-tool-use fallback;
+#     此时若有 worker 在跑,worker 走 env 不读该文件,**不会被打断**。
+if [ -n "${AI_HARNESS_RUN_DIR:-}" ]; then
+    RUN_DIR="$AI_HARNESS_RUN_DIR"
+    RUN_ID="$(basename "$RUN_DIR")"
+    mkdir -p "$RUN_DIR"
+    # worker-managed:不触碰 .current_run_id
+elif [ -n "${AI_HARNESS_RUN_ID:-}" ]; then
+    RUN_ID="$AI_HARNESS_RUN_ID"
+    RUN_DIR="runs/$RUN_ID"
+    mkdir -p "$RUN_DIR"
+    echo "$RUN_ID" > "runs/.current_run_id"
 else
     RUN_ID="$(date +%Y-%m-%d-%H%M)-$$"                 # 交互式 session,自造一个
+    RUN_DIR="runs/$RUN_ID"
+    mkdir -p "$RUN_DIR"
+    echo "$RUN_ID" > "runs/.current_run_id"
 fi
-mkdir -p "runs/$RUN_ID"
-echo "$RUN_ID" > "runs/.current_run_id"
 
 echo "## Today's context (loaded by SessionStart hook)"
 echo "Run ID: $RUN_ID"

@@ -20,14 +20,19 @@ allowed-tools: [Read, Write, Bash, Task, mcp__ai_daily_scan__*]
 HARNESS_ROOT="/root/ai-auto-harness"
 cd "$HARNESS_ROOT"
 
-# 生成 run-id 并落盘
-RUN_ID="$(date +%Y-%m-%d-%H%M)-$$"
-mkdir -p "runs/$RUN_ID"
-echo "$RUN_ID" > "runs/.current_run_id"
-echo "{\"started_at\":\"$(date -Iseconds)\",\"run_id\":\"$RUN_ID\"}" > "runs/$RUN_ID/meta.json"
+# run 目录:cron(daily.sh)启动时已注入 AI_HARNESS_RUN_DIR(此处为全局 runs/cron-<ts>,
+# 因为 cron 在 launch 时还没 pick slug);复用它,后续所有 run 级写入都用 $RUN_DIR。
+# 仅交互式直接跑 skill 才自造。(Fix: 2026-06-08-run-dir-into-workspace)
+if [ -n "${AI_HARNESS_RUN_DIR:-}" ]; then
+    RUN_DIR="$AI_HARNESS_RUN_DIR"; RUN_ID="$(basename "$RUN_DIR")"; mkdir -p "$RUN_DIR"
+else
+    RUN_ID="$(date +%Y-%m-%d-%H%M)-$$"; RUN_DIR="runs/$RUN_ID"; mkdir -p "$RUN_DIR"
+    echo "$RUN_ID" > "runs/.current_run_id"
+fi
+echo "{\"started_at\":\"$(date -Iseconds)\",\"run_id\":\"$RUN_ID\"}" > "$RUN_DIR/meta.json"
 ```
 
-记住 `$RUN_ID`,后续每步都要写到 `runs/$RUN_ID/`(decisions.md、SubAgent return 等)。
+记住 `$RUN_DIR`,后续每步都要写到 `$RUN_DIR/`(decisions.md、SubAgent return 等)。
 
 **任务 2 选好项目后,在 dispatch 第一个 SubAgent 前必须创建项目落盘目录**:
 
@@ -47,7 +52,7 @@ SUBAGENT_RESULT='<JSON from SubAgent>'
 # 写项目级(覆写,workspace 侧"最新"快照)
 echo "$SUBAGENT_RESULT" > "$WORKSPACE/results/${PHASE}.json"
 # 写 run 级(本次 cron 独立快照,审计)
-echo "$SUBAGENT_RESULT" > "runs/$RUN_ID/${PHASE}.json"
+echo "$SUBAGENT_RESULT" > "$RUN_DIR/${PHASE}.json"
 ```
 
 ## 工作流(顺序执行)
@@ -126,14 +131,46 @@ while True:
                   "cleanup_pending": "archived"}[PHASE]
 
     # 用 Task 工具 dispatch SubAgent(传入 slug + 必要上下文)
-    RESULT = Task(subagent_type=SKILL, input={
-        "slug": SLUG,
-        "workspace_path": WORKSPACE,
-        ...其他从 state.intake_result/fetch_result/... 传
-    })
+    # 🔴 关键:每个 phase 的 Task() prompt 必须显式传入路径模板等关键参数,
+    # 不靠 SubAgent 自己去 SKILL.md 里找(Fix: 2026-06-08-fetch-dest-path-not-injected-fix)
+    if SKILL == "fetch-weights":
+        RESULT = Task(
+            subagent_type="fetch-agent",
+            description=f"fetch weights for {SLUG}",
+            prompt=f"""
+slug: {SLUG}
+hf_repos: {state.get('hf_repos', [])}
+workspace_path: {WORKSPACE}
+run_id: {RUN_ID}
 
-    # 写 SubAgent return 到 runs/$RUN_ID/
-    Write(f"runs/{RUN_ID}/{SKILL}.json", json.dumps(RESULT))
+🔴 关键路径参数(必须使用,禁止自拼):
+dest_path_template: $WORKSPACE/.cache/hf_models/$REPO
+  → 每个 repo 的下载目标 = {WORKSPACE}/.cache/hf_models/<org>/<repo>
+  → 例如 google/magenta-realtime-2 → {WORKSPACE}/.cache/hf_models/google/magenta-realtime-2
+sentinel_dir: $WORKSPACE/.cache/handoff
+log_path: $WORKSPACE/logs/fetch_weights.log
+
+🔴 下载环境变量(每个 bash 必须 re-export):
+HF_HUB_DISABLE_XET=1
+HF_HUB_DOWNLOAD_CONCURRENCY=2
+HF_HOME=$WORKSPACE/.cache/huggingface
+--token "$HF_TOKEN" 显式传
+
+🔴 硬约束:
+- 用 hf download(不是 huggingface-cli),默认断点续传(不加 --resume-download)
+- 每个 repo 串行,起前 pgrep -f "hf download.*$REPO" 防并发
+- 绝不启动 pip install 或动其他 workspace
+"""
+        )
+    else:
+        RESULT = Task(subagent_type=SKILL, input={
+            "slug": SLUG,
+            "workspace_path": WORKSPACE,
+            ...其他从 state.intake_result/fetch_result/... 传
+        })
+
+    # 写 SubAgent return 到 $RUN_DIR/(= ${AI_HARNESS_RUN_DIR:-runs/$RUN_ID},见任务 0)
+    Write(f"{RUN_DIR}/{SKILL}.json", json.dumps(RESULT))
 
     # 检查阻塞
     if RESULT.get("blocked") or RESULT.get("paused_for_human"):
@@ -248,3 +285,9 @@ force_cleanup_incomplete: false
   - 动机: `--bare` 说明已过期;ControlFoley 实测 165 Bash 0 Task 导致 verify/runbook/cleanup artifacts 缺失
   - 证据: [fixes/2026-06-03-r9-task-dispatch-still-bypassed-fix.md](../../../docs/superpowers/fixes/2026-06-03-r9-task-dispatch-still-bypassed-fix.md) + [fixes/2026-06-03-scan-to-deploy-never-e2e-verified-fix.md](../../../docs/superpowers/fixes/2026-06-03-scan-to-deploy-never-e2e-verified-fix.md)
   - 验证: ⬜ 待验证(L1 scan→pick→intake + artifact validator)
+- **2026-06-08** — fetch-agent Task() prompt 显式注入 DEST 路径模板 + 下载环境变量
+  - 变更类型: 约束 / 流程
+  - 影响范围: 任务 3 fetch-weights dispatch prompt
+  - 动机: magenta-realtime 实测 5 个 hf download 拼出 3 种不同 --local-dir,根因是 Task() prompt 未传 DEST,SubAgent 自拼
+  - 证据: [fixes/2026-06-08-fetch-dest-path-not-injected-fix.md](../../../docs/superpowers/fixes/2026-06-08-fetch-dest-path-not-injected-fix.md)
+  - 验证: ⬜ 待验证(重跑 magenta-realtime fetch 阶段)

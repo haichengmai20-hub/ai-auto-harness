@@ -13,7 +13,7 @@ agent: intake-agent
 
 - **日志**:`$WORKSPACE/logs/intake.log` — 所有 bash stdout/stderr 用 `2>&1 | tee -a "$LOG"` append 写入
 - **结果**:`$WORKSPACE/results/intake.json` — return schema 的 JSON,**覆写**
-- 主 agent 收到 return 后还会同时写一份到 `runs/$RUN_ID/intake.json`(本次 cron 快照)
+- 主 agent 收到 return 后还会同时写一份到 `$RUN_DIR/intake.json`(本次 cron 快照;`$RUN_DIR` = `${AI_HARNESS_RUN_DIR:-runs/$RUN_ID}`,slug 已知时即 `workspace/<slug>/runs/<id>/`)
 
 约定见 `/root/ai-auto-harness/.claude/CLAUDE.md` "落盘约定"段.
 

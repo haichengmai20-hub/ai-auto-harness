@@ -85,13 +85,13 @@ Template(实际写时按 run_results 内容填):
   - 修复轮数:`<repair_count>` 轮
   - 修复内容:`<fixes_applied 列表>`
   - GPU 利用:`<gpu_snapshot 简略>`(若已跑通)
-- **完整 trace**:[runs/<run_id>/](runs/<run_id>/)
+- **完整 trace**:[workspace/<slug>/runs/<run_id>/](workspace/<slug>/runs/<run_id>/)(legacy 全局 `runs/<run_id>/`)
 - **部署 runbook**(若 `runbook_path`):[`<runbook_path>`](`<runbook_path>`) — 复现指南 + 踩坑速查
 - **Workspace 已归档**(若 `cleanup_result.removed_bytes` > 0):释放 `<freed_gib>` GiB,保留 `state.json / results / logs / output`
 
 <若 FAILED,加:>
 - **失败原因**:`<error_class>`(阶段 `<phase_failed_at>`)
-- **agent 决策轨迹**:`<runs/<run_id>/decisions.md 摘要>`
+- **agent 决策轨迹**:`<workspace/<slug>/runs/<run_id>/decisions.md 摘要>`
 
 <若 PAUSED_FOR_HUMAN,加:>
 - **待人手处理**:[pending_human/`<slug>`.md](pending_human/`<slug>`.md)

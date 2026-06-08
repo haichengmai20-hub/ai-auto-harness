@@ -11,11 +11,16 @@
 
 set -u
 HARNESS_ROOT="/root/ai-auto-harness"
-# run-id 解析:$AI_HARNESS_RUN_ID(launch_worker 注入)优先于 .current_run_id。
-# 防 SessionStart hook 覆盖 .current_run_id 导致 transcript/计数写错目录。
-# (Fix: 2026-06-02-hook-runid-clobber-fix)
-RUN_ID="${AI_HARNESS_RUN_ID:-$(cat "$HARNESS_ROOT/runs/.current_run_id" 2>/dev/null || echo "unknown")}"
-RUN_DIR="$HARNESS_ROOT/runs/$RUN_ID"
+# run 目录解析(Fix: 2026-06-02-hook-runid-clobber + 2026-06-08-run-dir-into-workspace):
+#   1) $AI_HARNESS_RUN_DIR — launcher 注入的**完整路径**(权威,可指向 workspace/<slug>/runs/<id>)
+#   2) $AI_HARNESS_RUN_ID  — 旧 launcher 只注入 id → 全局 runs/$id(向后兼容,不破在飞的 worker)
+#   3) .current_run_id 文件 — 交互式 session 自己写的指针
+if [ -n "${AI_HARNESS_RUN_DIR:-}" ]; then
+    RUN_DIR="$AI_HARNESS_RUN_DIR"
+else
+    RUN_ID="${AI_HARNESS_RUN_ID:-$(cat "$HARNESS_ROOT/runs/.current_run_id" 2>/dev/null || echo "unknown")}"
+    RUN_DIR="$HARNESS_ROOT/runs/$RUN_ID"
+fi
 mkdir -p "$RUN_DIR"
 
 EVENT=$(cat 2>/dev/null || echo '{}')
