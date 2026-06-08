@@ -13,55 +13,37 @@
 1. 公司 HTTP 代理（如 172.16.6.179:61080）连接池有限（约 10-20 并发）
 2. `hf download` 默认 Xet 后端（`HF_XET_HIGH_PERFORMANCE=1`）起多个并发连接
 3. 多连接 + 代理 = 打爆代理连接池 → 503
-4. `no_proxy` 不含 `huggingface.co`，所有 HF 流量走代理
 
-## 三种解法（按优先级）
+## 关键发现（实测验证）
 
-### 方案 A：no_proxy 加 HuggingFace 域名（推荐，已落地）
+**本机无直连外网能力**：`unset HTTPS_PROXY HTTP_PROXY` 后 curl 测试报 `[Errno 101] Network is unreachable`。
+所以**不能 unset proxy 或加 no_proxy 绕过代理**，必须走代理但控制并发。
+
+## 正确解法：禁 Xet + 降并发（已落地）
 
 ```bash
 # launch_worker.sh / daily.sh 已加，env-level 生效
-export no_proxy="${no_proxy:+$no_proxy,}huggingface.co,.huggingface.co,cdn-lfs.huggingface.co,huggingface-ml-artifacts.s3.amazonaws.com"
-export NO_PROXY="${NO_PROXY:+$NO_PROXY,}huggingface.co,.huggingface.co,cdn-lfs.huggingface.co,huggingface-ml-artifacts.s3.amazonaws.com"
+export HF_HUB_DISABLE_XET=1          # 禁 Xet 多连接后端，走普通 HTTP 单连接
+export HF_HUB_DOWNLOAD_CONCURRENCY=2 # 限制并发连接数，不打爆代理
+
+# SubAgent setsid 块内也需 re-export（子 shell 可能不继承）
+export HF_HUB_DISABLE_XET=1
+export HF_HUB_DOWNLOAD_CONCURRENCY=2
+hf download <repo> --local-dir <path> --token "$HF_TOKEN"
 ```
 
-优点：env-level 设一次，所有子进程继承，SubAgent 无需额外操作。
-注意：`setsid nohup bash -c` 子 shell 需确认 no_proxy 被继承（通常会被继承，但最好也 unset proxy 做双保险）。
+**为什么不选其他方案**：
+- ❌ `no_proxy` 加 `huggingface.co` → 本机无直连外网，加了也没用（Network is unreachable）
+- ❌ `unset HTTPS_PROXY HTTP_PROXY` → 同上，断网
+- ❌ 继续用 Xet（`HF_XET_HIGH_PERFORMANCE=1`）→ Xet 起多个并发连接，打爆代理 → 503
 
-### 方案 B：unset proxy（双保险，fetch-weights SKILL.md 已加）
-
-```bash
-# 每次 hf download 前执行
-unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
-```
-
-优点：最彻底，完全不走路由表里的代理。
-注意：只影响当前 shell 及子进程，不影响全局。
-
-### 方案 C：降并发 --num-workers 1（兜底）
+## 验证代理下载是否正常
 
 ```bash
-HF_HUB_DOWNLOAD_CONCURRENCY=1 hf download <repo> --local-dir <path> --token "$HF_TOKEN"
-```
-
-优点：即使走代理也不会打爆连接池。
-注意：速度较慢（单连接），仅在前两种方案无效时使用。
-
-## 推荐组合
-
-**方案 A + B 组合**：launch_worker.sh 设 `no_proxy`（方案 A），SubAgent 每次 bash 再 `unset proxy`（方案 B），双保险。
-
-## 验证直连是否生效
-
-```bash
-# 不走代理
-unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
-curl -sI https://huggingface.co/api/models/google/magenta-realtime-2 | head -3
-# 期望: HTTP/2 200（直连成功）
-
-# 对比: 走代理
-HTTPS_PROXY=http://172.16.6.179:61080/ curl -sI https://huggingface.co/api/models/google/magenta-realtime-2 | head -3
-# 可能: HTTP/1.1 503（代理打爆）
+# 走代理 + 禁 Xet
+HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_CONCURRENCY=2 \
+  hf download google/magenta-realtime-2 --local-dir /tmp/test --token "$HF_TOKEN"
+# 期望：开始下载，速度约 5-20MB/s（代理带宽限制）
 ```
 
 ## 相关

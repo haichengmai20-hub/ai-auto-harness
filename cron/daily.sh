@@ -60,11 +60,11 @@ if [ -n "${HF_TOKEN:-}" ]; then
     export HF_TOKEN
 fi
 
-# ============ 代理绕过:HF 下载直连(避免代理 503 Too many open connections) ============
+# ============ 代理环境 HF 下载优化(避免代理 503 Too many open connections) ============
 # Fix: 2026-06-08-proxy-hf-download-503-fix
-export no_proxy="${no_proxy:+$no_proxy,}huggingface.co,.huggingface.co,cdn-lfs.huggingface.co,huggingface-ml-artifacts.s3.amazonaws.com"
-export NO_PROXY="${NO_PROXY:+$NO_PROXY,}huggingface.co,.huggingface.co,cdn-lfs.huggingface.co,huggingface-ml-artifacts.s3.amazonaws.com"
-export HF_HUB_DOWNLOAD_CONCURRENCY="${HF_HUB_DOWNLOAD_CONCURRENCY:-4}"
+# 注:本机无直连外网能力,不能 unset proxy 或 no_proxy,只能禁 Xet + 降并发。
+export HF_HUB_DISABLE_XET=1
+export HF_HUB_DOWNLOAD_CONCURRENCY="${HF_HUB_DOWNLOAD_CONCURRENCY:-2}"
 
 # ============ 启动前清理僵尸 worker ============
 python3 - <<'PYEOF' 2>>"$LOG_DIR/cleanup.log" || true
