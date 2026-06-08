@@ -190,7 +190,7 @@
 
 ## 6. 仓库结构
 
-**Git 模型**:`git clone /root/claudecode_sourcecode1` fork 含历史 → `git remote rename origin upstream` → `git remote add origin http://192.168.1.227/maihaicheng/ai-auto-harness.git`。后续 CC 升级靠 `git pull upstream main`;自己的 commits 全部用 `ai-auto: ...` 前缀(`git log --grep=ai-auto` 查自己的 work)。
+**Git 模型**:`git clone /root/claudecode_sourcecode1` fork 含历史 → `git remote rename origin upstream` → `git remote add origin http://gitlab.internal/maihaicheng/ai-auto-harness.git`。后续 CC 升级靠 `git pull upstream main`;自己的 commits 全部用 `ai-auto: ...` 前缀(`git log --grep=ai-auto` 查自己的 work)。
 
 ```
 /root/ai-auto-harness/
@@ -1286,7 +1286,7 @@ find runs/ -maxdepth 1 -mtime +7 -exec rm -rf {} \;
 
 - 在公司 Gitea web 界面新建空 repo `maihaicheng/ai-auto-harness`
 - 本地:`git clone /root/claudecode_sourcecode1 /root/ai-auto-harness`(保留 CC 历史)
-- `git remote rename origin upstream` + `git remote add origin http://192.168.1.227/maihaicheng/ai-auto-harness.git`
+- `git remote rename origin upstream` + `git remote add origin http://gitlab.internal/maihaicheng/ai-auto-harness.git`
 - 加平台 `.gitignore`(workspace/ runs/ memory/ pending_human/ state/ reports/)
 - 后续 CC 升级:`git pull upstream main`(merge);自己 commits 用 `ai-auto:` 前缀
 - 写 `.claude/skills/ai-auto/daily-auto.md` + `intake.md`(只到克隆 + 读 README)

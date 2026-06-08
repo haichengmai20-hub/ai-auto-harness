@@ -1288,7 +1288,7 @@ git push origin --delete feature/mcp-integration  # 若已 push 过的话
 ### Task 1.1: Gitea repo 创建 + 本地 git setup
 
 **Files:**
-- 用户 web 操作:在 `http://192.168.1.227/maihaicheng/` 上确认 `ai-auto-harness` repo 已建(已经建过,带 README)
+- 用户 web 操作:在 `http://gitlab.internal/maihaicheng/` 上确认 `ai-auto-harness` repo 已建(已经建过,带 README)
 - 本地:fork CC + remote setup
 
 - [ ] **Step 1: 把刚生成的 spec/plan 文档暂存**
@@ -1313,7 +1313,7 @@ git log --oneline | head -5  # 应该看到 CC 历史
 ```bash
 cd /root/ai-auto-harness
 git remote rename origin upstream
-git remote add origin http://192.168.1.227/maihaicheng/ai-auto-harness.git
+git remote add origin http://gitlab.internal/maihaicheng/ai-auto-harness.git
 git remote -v
 ```
 
@@ -1361,7 +1361,7 @@ git push -u origin main --force
 - [ ] **Step 7: 验证 Gitea 上看得到**
 
 ```bash
-# Web 界面打开 http://192.168.1.227/maihaicheng/ai-auto-harness/
+# Web 界面打开 http://gitlab.internal/maihaicheng/ai-auto-harness/
 # 应该看到 src/, docs/, experiments/, .gitignore 等
 echo "manual check via web"
 ```
@@ -4069,7 +4069,7 @@ cd /root/auto-deploy-agent
 cat > /tmp/deprecated-notice.md <<'EOF'
 > ## ⚠️ DEPRECATED
 >
-> 本项目已被 [ai-auto-harness](http://192.168.1.227/maihaicheng/ai-auto-harness) 替代.
+> 本项目已被 [ai-auto-harness](http://gitlab.internal/maihaicheng/ai-auto-harness) 替代.
 >
 > 新平台基于 Claude Code 源码 + 自定义 skill 实现 repair_loop 替代,详见 ai-auto-harness 的 spec.
 > 本项目代码保留作为 prompt 经验 / domain knowledge 来源,**不再演进**.

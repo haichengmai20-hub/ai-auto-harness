@@ -4,7 +4,13 @@
 
 一句话:**把"研发同学每天看新 AI 项目 + 写技术调研 + 跑 demo"的事 cron 化**.
 
-**当前进度**(2026-05-22):Phase 1-4 代码完成 · SongGen e2e 试跑暴露 R1/R4/R6/R9 LLM 自觉度问题 · 加入 PostToolUse hook 做 harness 层硬约束 · 待跑 SongGen run4 验证 hook 有效性 · 待跑 5+ 不同类型项目扩样本广度
+**当前进度**(2026-06-08):Phase 1-4 代码完成,平台已端到端跑通多类项目 —
+- ✅ **已部署验证**:SongGeneration(音乐)、OmniVoice(语音)、Hunyuan3D-2(3D)三个项目跑通并出报告;ToonFlow / magenta-realtime / whisper 系列在 e2e 验证中
+- ✅ **硬约束 R1-R10 全部落地**:从 SongGen run2 烧 \$20 干 0 事(sleep 占 97% wall-clock)复盘出 R1-R9,后补 R10 handoff sentinel;PostToolUse hook 实时检测注入下一 turn
+- ✅ **修复 hook 执行链 run-id 所有权 bug**:R1/R4/R6/R9 自上线起从未在正确目录生效的真因(SessionStart hook 覆盖 `.current_run_id`),已修
+- ✅ **run 级数据从全局 `runs/` 移入 `workspace/<slug>/runs/`**(与 R1 隔离自洽,launcher 经 `$AI_HARNESS_RUN_DIR` 注入)
+- ✅ **代理环境 HF 下载优化**(禁 Xet + 降并发,非 unset proxy)、**D1-D7 文档维护硬规则**(fix→spec 先后顺序 + ChangeLog)
+- ✅ **scan → deploy 经 MCP 打通**:上游 ai-daily-scan 产 findings → 本平台 record_outcome 回填
 
 ---
 
@@ -134,7 +140,7 @@
 
 ---
 
-## 🔴 项目级硬规则(R1-R9)
+## 🔴 项目级硬规则(R1-R10)
 
 试跑事故复盘后沉淀,全部写在 [.claude/CLAUDE.md](.claude/CLAUDE.md) 顶部,所有 SubAgent 自动加载:
 
@@ -149,6 +155,7 @@
 | **R7** 用 `hf` 不用 `huggingface-cli` | 后者已 deprecated 无加速;`hf download --token "$HF_TOKEN"`(默认断点续传,无 `--resume-download`)+ `HF_XET_HIGH_PERFORMANCE=1`(Xet 后端,非废弃的 `HF_HUB_ENABLE_HF_TRANSFER`) | run2:用了 `huggingface-cli` + 无 token + 无加速 → 0.3MB/s |
 | **R8** PHASE_START/END 标记 | 每 SubAgent 进出 echo `=== PHASE_START phase=X slug=Y run_id=Z ts=...` / `=== PHASE_END phase=X slug=Y status=done ts=...`,monitor `grep -E "^=== PHASE_"` 直接拿事件 | ndjson 无结构化阶段事件 |
 | **R9** 其他 | 主 agent 不亲自 bash;run-and-repair 不超 3 轮;不污染全局 HF cache;verify 不修问题 | (从原"不要做"段保留) |
+| **R10** handoff sentinel | 跨 turn/跨 cron 的后台长任务(fetch/pip/build)由**生产者进程**原子写 `workspace/<slug>/.cache/handoff/<phase>.json`(`status/pid/exit_code/...`);SessionStart hook 只注入提示,不靠即将离开的 LLM observer 猜终态 | fetch 完成后无人接棒 18h,长任务终态不能只靠 observer poll |
 
 ## 🛡️ R 规则如何被强制(harness 层硬约束)
 
@@ -461,6 +468,8 @@ export XDG_CACHE_HOME="$ISOLATED_CACHE/xdg"
 │   └── api_skeleton/                   API 路线产出(client.py + 使用指导.md 等)
 │
 ├── runs/<run-id>/                      每次 cron 跑的完整 trace(.gitignored)
+│                                       ⚠️ 2026-06-08 起 run 级数据已移入 workspace/<slug>/runs/<run-id>/
+│                                       (与 R1 隔离自洽);全局 runs/ 仅留给 daily.sh cron 在 pick slug 之前的 worker
 │   ├── meta.json                       run 元数据(含 slug + isolated_cache 路径)
 │   ├── worker.pid                      launch_worker.sh / daily.sh 的 PID(trap cleanup 用)
 │   ├── haha.pid                        claude-haha 子进程 PID
@@ -732,7 +741,7 @@ git log --grep=ai-auto
 
 - **上游(信号来源)**:[ai-daily-scan](https://github.com/haichengmai20-hub/ai-daily-scan) — 7 子 Agent 流水线 + 公司业务画像
 
-- **已替代(prompt 经验来源)**:[auto-deploy-agent](http://192.168.1.227/dangchenrui/auto-deploy-agent) — Python 实现的旧版,domain knowledge 已迁移到 `memory/lessons/`
+- **已替代(prompt 经验来源)**:[auto-deploy-agent](http://gitlab.internal/dangchenrui/auto-deploy-agent) — Python 实现的旧版,domain knowledge 已迁移到 `memory/lessons/`
 
 ---
 

@@ -232,7 +232,7 @@
 - **Task 13**：`settings.json` 加 deny 规则防 cleanup 越权 —— ⬜ 待做
 
 ### 待做的事情
-- **push 到 Gitea**（`http://192.168.1.227/maihaicheng/ai-auto-harness`，19 commits 未推）—— 外发操作，需用户确认
+- **push 到 Gitea**（`http://gitlab.internal/maihaicheng/ai-auto-harness`，19 commits 未推）—— 外发操作，需用户确认
 - ~~**修 verify.json `passed=null`**~~：✅ 2026-05-27 已处理。根因不是 null,是 LLM 自创 schema 完全缺 `passed` 字段(`status+checks` / `status+verdict` 自创格式)。修法:(1) 回填 hunyuan3d-2 + omnivoice 的 `passed:true`(基于日报已确认)(2) 强化 `verify/SKILL.md` 加 jq -e 自检 + 反模式列表(3) 新建 `scripts/validate-verify.sh` 机器拦截。Task 5-7 串联跑时会重触 verify,新落盘自然走完整 6 字段 schema
 
 ---
