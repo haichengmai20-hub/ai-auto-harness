@@ -99,12 +99,12 @@
 - #10 v1.1 硬化 ✅
 - #12 fix 记录管控 ✅
 - #13 spec/plan 管控 ✅
-- #15 交接机制断裂 ❌ P0
-- #16 环境无 daemon ❌ P0
-- #17 状态快照失真 ❌
-- #18 verify 内容级检查 ❌
-- #19 Task() 隔离未落地 ❌
-- #21 缓存边界级 ❌
+- #15 交接机制断裂 ✅ P0(06-10 补记闭环)
+- #16 环境无 daemon ✅ P0(第 2 档闭环,第 3 档留运维)
+- #17 状态快照失真 ✅(R10 sentinel)
+- #18 verify 内容级检查 ✅(verify_level L0/L1)
+- #19 Task() 隔离 ✅(约束+检测落地,根因残留归 #31)
+- #21 缓存边界级 ✅(run 级→项目级)
 - #25 G2 trace 格式 ✅
 - #32 scan→deploy 全链路 e2e ✅（toonflow-app 首次闭环）
 
@@ -116,8 +116,8 @@
 
 ### 🗣️ omnivoice
 - #11 pip 缓存泄漏（根因分析）✅
-- #20 fetch→install pip 泄漏 ❌
-- #22 run.json 字段失真 ❌
+- #20 fetch→install pip 泄漏 ✅(B+C 双保险)
+- #22 run.json 字段失真 ✅(统计口径)
 
 ### 🎬 controlfoley
 - #26 hook run-id 覆盖 ✅ P0
@@ -131,26 +131,17 @@
 
 ### 🧊 hunyuan3d-2
 - #14 verify schema ✅
-- #24 completed_at 字面量 ❌
+- #24 completed_at 字面量 ✅(防呆+扫描)
 
 ---
 
-## 优先修复建议
+## 优先修复建议(2026-06-10 更新:积压已清零)
 
-**P0（必须立即修）**:
-1. #15 交接机制断裂 — 设计方案已有，待落地（MVP: SessionStart hook 自愈）
-2. #16 环境无 daemon — 需运维层改动（装 cron / 启 supervisord）
+**仅余 2 条部分落地**:
+1. #30 fetch-weights 下载完整性校验 — 🟡 validator + committed 回归测试已落地，待真实 GPU 权重下载 e2e
+2. #31 R9 Task() 仍被绕过 — 🟡 hook + artifact gate 已落地（含回归测试）；根因 S-1 待 CC 平台支持
 
-**P1（本周应修）**:
-3. #30 fetch-weights 下载完整性校验 — 🟡 validator + committed 回归测试已落地，待真实 GPU 权重下载 e2e
-4. #31 R9 Task() 仍被绕过 — 🟡 hook + artifact gate 已落地（含回归测试）；根因 S-1 待 CC 平台支持
-5. #19 Task() 隔离未落地 — 需先调研 --bare 下 Task() 行为
-6. #20 fetch→install pip 泄漏 — 三种方案待选
-7. #17 状态快照失真 — 与 #15 ① 自报终态是同一方案
-8. #18 verify 内容级检查 — 需设计分级验证策略
-9. #21 缓存边界级 — 方案待选（项目级 vs 全局共享）
-
-**P2（记录但不急）**:
-11. #22 run.json 字段失真
-12. #23 poll_count 累加
-13. #24 completed_at 字面量
+**已闭环 fix 的残留注记**(不阻塞,在各自文档"闭环补记"里):
+- #16 第 3 档:容器重启 crond 自启未验证(supervisord entrypoint 需运维拍板)
+- #18 历史 3 项目 L1 重跑未做(新 run 起强制)
+- #22 repair_log 与 transcript 自动交叉校验(可选增强)
