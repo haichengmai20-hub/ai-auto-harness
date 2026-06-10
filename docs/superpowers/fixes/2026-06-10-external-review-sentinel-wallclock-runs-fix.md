@@ -119,7 +119,7 @@
 
 - **状态**: ✅ 成功
 - **验证证据**: 上节 1-5;6 为次日观察项
-- **commit hash**: 待 commit 后回填
+- **commit hash**: `2dca1df`
 - **commit message**: `ai-auto: 外部 review 采纳 — sentinel 对账 + R3 兜底 + runs 清理 + 5 小补丁(20 条裁决表)`
 
 ---

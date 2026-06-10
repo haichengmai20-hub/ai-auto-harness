@@ -45,13 +45,13 @@
 
 ---
 
-## ✅ 已闭环（34 条 — 按时间倒序）
+## ✅ 已闭环（35 条 — 按时间倒序）
 
 > 最近修的排最前，方便回溯。
 
 | # | 级别 | 人话 | Fix 文件 | commit | 影响项目 |
 |---|---|---|---|---|---|
-| 37 | **P0** | 工人死了 5 小时,白板还写"工作中" → 启动前对账改写真相 + R3 代码兜底 + runs 清理 | [external-review-sentinel-wallclock-runs](2026-06-10-external-review-sentinel-wallclock-runs-fix.md) | `<本次>` | scail + magenta-realtime |
+| 37 | **P0** | 工人死了 5 小时,白板还写"工作中" → 启动前对账改写真相 + R3 代码兜底 + runs 清理 | [external-review-sentinel-wallclock-runs](2026-06-10-external-review-sentinel-wallclock-runs-fix.md) | `2dca1df` | scail + magenta-realtime |
 | 36 | **P0** | 叫快递走侧门，侧门是堵墙：HF 全断网；门卡没批的仓库被放进流水线 | [no-proxy-pollution-gated-403](2026-06-10-no-proxy-pollution-gated-403-fix.md) | `f4c4355` | eagle |
 | 15 | **P0** | 权重下完没人接手干等 → R10 sentinel+hook 自愈,06-10 run 实证接续 | [polling-handoff-mechanism](2026-05-29-polling-handoff-mechanism-fix.md) | 补记闭环 | 全平台 |
 | 16 | **P0** | 机器没闹钟 → cron 已装好真实触发(第 2 档),supervisord 留运维 | [env-no-daemon-auto-not-closed-loop](2026-05-29-env-no-daemon-auto-not-closed-loop-fix.md) | 补记闭环 | 全平台 |
