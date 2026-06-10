@@ -41,8 +41,8 @@ jq empty "$VFILE" 2>/dev/null && pass "JSON 语法合法" || { fail "JSON 语法
 # V2: 6 个必填根字段都在(防自创 schema)
 # ============================================================
 echo
-echo "[V2] 6 个根字段(防 LLM 自创 schema)"
-for f in passed failed_at evidence notes confidence completed_at; do
+echo "[V2] 7 个根字段(防 LLM 自创 schema)"
+for f in passed failed_at evidence notes confidence verify_level completed_at; do
     if jq -e --arg k "$f" 'has($k)' "$VFILE" >/dev/null 2>&1; then
         pass "字段 .$f 存在"
     else
@@ -99,6 +99,17 @@ CONF=$(jq -r '.confidence' "$VFILE" 2>/dev/null)
 case "$CONF" in
     high|medium|low) pass "confidence=$CONF (合法)" ;;
     *)               fail "confidence=$CONF (应为 high|medium|low)" ;;
+esac
+
+# ============================================================
+# V6: verify_level 取值(Fix: 2026-05-29-verify-content-level-check)
+# ============================================================
+echo
+echo "[V6] .verify_level 取值"
+VLVL=$(jq -r '.verify_level' "$VFILE" 2>/dev/null)
+case "$VLVL" in
+    L0|L1) pass "verify_level=$VLVL (合法)" ;;
+    *)     fail "verify_level=$VLVL (应为 L0|L1 — L0=存在性/格式/GPU,L1=内容级抽查)" ;;
 esac
 
 # ============================================================

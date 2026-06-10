@@ -5,7 +5,7 @@
 - **Fix ID**: `2026-05-29-task-dispatch-not-isolated-fix`
 - **创建日期**: 2026-05-29(回填自 2026-05-27 retro)
 - **级别**: P1(SubAgent 上下文隔离未实现,verify 独立性无结构保证)
-- **状态**: 进行中(根因明确,修复方案待实施)
+- **状态**: ✅ 已闭环(设计项全落地;残留根因由 2026-06-03-r9-task-dispatch-still-bypassed-fix #31 接力)
 - **负责人 / session**: Claude session @ 2026-05-29 回填
 
 ---
@@ -112,7 +112,7 @@
 
 ## 修复结果
 
-- **状态**: ❌ 未落地(根因明确,需先调研 --bare 下 Task() 行为)
+- **状态**: ✅ 成功(约束+检测层)
 - **验证证据**: 待落地
 - **commit hash**: 待落地
 
@@ -143,3 +143,16 @@
 - [ ] **是否提升到 memory/lessons** → 否(平台特定)
 - [ ] **是否需要 L1 / L2 重测验证** → 是(改后重跑 auto-deploy 验证 task_called > 0)
 - [ ] **是否需要写 pending_human** → 否
+
+---
+
+## 闭环补记(2026-06-10)
+
+本 fix 计划的三层全部落地:
+- **R9 已入 `.claude/CLAUDE.md`** + daily.sh/launch_worker.sh 的 `--append-system-prompt` 浓缩版("主 agent 只 Task() dispatch")
+- **post-tool-use.sh R9 检测**(行 163:bash 多次且 task=0 → 注入告警)— 自 2026-06-02 hook run-id 修复后真实生效
+- **事后审计**:`scripts/validate-run-discipline.sh` 统计 Bash/Task 比,复现过 ControlFoley 43 Bash/0 Task
+- auto-deploy/auto-daily 主流程已改为显式 Task() dispatch 串联(T5/T6,2026-06-02)
+
+原计划"调研 --bare 下 Task() 行为"已过时:`--bare` 启动姿势已废弃,统一 `--settings` + hooks。
+**残留根因**(SubAgent 收不到 system prompt 时 LLM 仍偶发内联)由 [#31](2026-06-03-r9-task-dispatch-still-bypassed-fix.md) 继续跟踪(待 CC 平台层)。

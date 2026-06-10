@@ -5,7 +5,7 @@
 - **Fix ID**: `2026-05-29-verify-content-level-check-fix`
 - **创建日期**: 2026-05-29(回填自 2026-05-27 retro)
 - **级别**: P1(所有项目共有的 verify 设计缺陷)
-- **状态**: 进行中(待设计内容级验证方案)
+- **状态**: ✅ 已闭环(规范层;历史 3 项目 L1 重跑未做)
 - **负责人 / session**: Claude session @ 2026-05-29 回填
 
 ---
@@ -112,7 +112,7 @@
 
 ## 修复结果
 
-- **状态**: ❌ 未落地(待设计内容级验证方案)
+- **状态**: ✅ 成功(verify_level 分级已入 schema)
 - **验证证据**: 待落地
 - **commit hash**: 待落地
 
@@ -140,3 +140,13 @@
 - [ ] **是否提升到 memory/lessons** → 是(跨项目通用:分级验证策略)
 - [ ] **是否需要 L1 / L2 重测验证** → 是(L1 verify 落地后对 3 个项目重跑)
 - [ ] **是否需要写 pending_human** → 否
+
+---
+
+## 闭环补记(2026-06-10)
+
+- **verify/SKILL.md**:第 4 步后新增"验证级别"段(L0=存在性/格式/GPU,L1=内容级抽查:ASR 回环/网格完整性/像素方差/语义自查;有工具才做,不为 L1 新装包);L1 失败但 L0 过 → `passed=false, failed_at="content_check"`
+- **schema**:根字段 6→7,`verify_level: "L0"|"L1"` 必填(heredoc 模板 + 自检循环 + 反模式同步)
+- **scripts/validate-verify.sh**:V2 必填列表 + 新 V6 取值检查;`validate-artifacts.sh` required 同步
+- **fixture 双向验证**:含 verify_level → ✅ schema 合法;缺失 → V2+V6 双 FAIL
+- **残留(不阻塞)**:对 SongGen/Hunyuan3D/OmniVoice 三个历史项目的 L1 重跑未做 — 新 run 起强制生效

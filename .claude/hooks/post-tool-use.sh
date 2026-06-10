@@ -103,12 +103,18 @@ elif has_sleep:
 else:
     sleep_streak = 0
 
-# === R4.5: poll 类操作累计 > 8 ===
+# === R4.5 前置: PHASE_START 标记 → poll_count 按阶段重置 ===
+# (Fix: 2026-05-29-poll-count-accumulate-cross-phase — poll 上限是"每阶段 8 次",
+#  不是全 run 累计;否则 fetch 用掉 7 次后 install 阶段 poll 1 次就误报)
+if "PHASE_START" in cmd:
+    poll_count = 0
+
+# === R4.5: poll 类操作累计 > 8(本阶段内) ===
 if re.search(r'\b(tail|sleep|kill\s+-0|du\s+-s|ps\s+aux)\b', cmd):
     poll_count += 1
     if poll_count > 8:
         warnings.append(
-            f"🔴 R4.5 VIOLATION: poll 类操作(tail/sleep/kill -0/du -s/ps aux)累计 {poll_count} 次 > 8 上限。"
+            f"🔴 R4.5 VIOLATION: poll 类操作(tail/sleep/kill -0/du -s/ps aux)本阶段累计 {poll_count} 次 > 8 上限。"
             f"立刻 paused_in_progress return,让主 agent / cron 接续(每多 poll 一次烧 ~$0.10,cron 接续 $0)。"
         )
 

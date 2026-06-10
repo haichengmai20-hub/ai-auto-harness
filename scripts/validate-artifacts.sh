@@ -50,7 +50,7 @@ if not results.exists():
 verify = load_json(results / "verify.json", "verify.json") if results.exists() else None
 verify_passed = False
 if verify is not None:
-    required = ["passed", "failed_at", "evidence", "notes", "confidence", "completed_at"]
+    required = ["passed", "failed_at", "evidence", "notes", "confidence", "verify_level", "completed_at"]
     for key in required:
         if key not in verify:
             failures.append(f"verify.json missing root field: {key}")
@@ -83,6 +83,27 @@ else:
         warnings.append("verify did not pass, but cleanup.json exists; check whether cleanup was intentional")
     else:
         print("  cleanup.json: not required because verify.passed is not true")
+
+# 通用检查: results/*.json 任何字符串值含未求值的 shell 表达式字面量
+# (Fix: 2026-05-29-completed-at-literal-not-evaluated — hunyuan3d-2 实测
+#  completed_at 落成 "$(date -Iseconds)" 字面量;根因是模板被 Write 工具原样
+#  写盘而非 Bash heredoc 求值)
+def scan_literals(node, path):
+    if isinstance(node, dict):
+        for k, v in node.items():
+            scan_literals(v, f"{path}.{k}")
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            scan_literals(v, f"{path}[{i}]")
+    elif isinstance(node, str) and ("$(" in node or node.startswith("<") and node.endswith(">")):
+        failures.append(f"unevaluated literal in {path}: {node!r}")
+
+if results.exists():
+    for jf in sorted(results.glob("*.json")):
+        try:
+            scan_literals(json.loads(jf.read_text(encoding="utf-8")), jf.name)
+        except Exception:
+            pass  # invalid JSON 已由上方 load_json 报过
 
 print()
 if warnings:

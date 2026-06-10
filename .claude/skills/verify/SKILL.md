@@ -118,6 +118,21 @@ GPU 利用低(< 1GB used 或全程 0% 利用)→ `passed=false, failed_at="gpu_u
 
 任一失败 → `passed=false`,**不要重试**(verify 不修问题)— 写 evidence 后返回
 
+### 验证级别(verify_level — 结果必须标注)
+
+上面 3 步 = **L0**(存在性/格式/GPU 真在跑)。L0 过不代表内容对——"有声音且够长"≠"声音是要的"。若环境里有现成工具,**再做 L1 内容级抽查**并升级标注:
+
+| 模型类型 | L1 检查(任选其一,有工具才做,不为 L1 新装包) |
+|---|---|
+| TTS/音频 | ASR 回环:输出→whisper/ASR→与输入文本比对,CER 明显低 |
+| 3D | 网格完整性:面数 > 1000 且无 degenerate face(trimesh 一行) |
+| 图像 | 非纯色/噪声:像素方差合理;有 CLIP 则 CLIP score 与 prompt 相关 |
+| 文本 | 输出与 prompt 语义相关(LLM 自查即可) |
+
+- 只做了 3 步基础检查 → `verify_level: "L0"`
+- 额外做了内容级检查且通过 → `verify_level: "L1"`
+- **L1 失败但 L0 过** → `passed=false, failed_at="content_check"`(内容不对=没部署对)
+
 ## 返回 schema
 
 ```json
@@ -135,7 +150,8 @@ GPU 利用低(< 1GB used 或全程 0% 利用)→ `passed=false, failed_at="gpu_u
     "output_files": ["sample/output/audio_001.mp3"]
   },
   "notes": "smoke 生成 5s 音频文件,GPU 87% 利用率正常",
-  "confidence": "high"
+  "confidence": "high",
+  "verify_level": "L0"
 }
 ```
 
@@ -155,13 +171,14 @@ GPU 利用低(< 1GB used 或全程 0% 利用)→ `passed=false, failed_at="gpu_u
     }
   },
   "notes": "推理跑通了但 GPU 几乎没用,可能 fallback 到 CPU — 装 torch / config 有问题",
-  "confidence": "high"
+  "confidence": "high",
+  "verify_level": "L0"
 }
 ```
 
 ## 强制要求(返回前)
 
-1. **写 results/verify.json — 必须含下列 6 个根字段,严禁自创 schema**:
+1. **写 results/verify.json — 必须含下列 7 个根字段,严禁自创 schema**:
 
    下游(cleanup G4 / auto-status / write-recommendation)用 `jq -r '.passed'` 读判定。**字段缺失 = 下游误判**。L1 实测 hunyuan3d-2 / omnivoice 都因为 LLM 自由写 schema(用 `status`+`checks` 或 `status`+`verdict`)导致 `passed` 字段缺失,被 cleanup G4 误判 verify_not_passed。
 
@@ -171,6 +188,7 @@ GPU 利用低(< 1GB used 或全程 0% 利用)→ `passed=false, failed_at="gpu_u
    PASSED_VAL=true                  # 真实判定:true 或 false (字符串,无引号)
    FAILED_AT_VAL=null               # 真实:null 或 "startup"|"smoke_test"|"gpu_utilization" (带引号)
    CONFIDENCE_VAL='"high"'          # "high" | "medium" | "low"
+   VERIFY_LEVEL_VAL='"L0"'          # "L0"(仅 3 步基础) | "L1"(做了内容级抽查)
    NOTES_VAL='"<判定说明,单行>"'    # 一句话
 
    bash -c "cat > '$WORKSPACE/results/verify.json' <<JSON
@@ -186,15 +204,16 @@ GPU 利用低(< 1GB used 或全程 0% 利用)→ `passed=false, failed_at="gpu_u
      },
      \"notes\": $NOTES_VAL,
      \"confidence\": $CONFIDENCE_VAL,
+     \"verify_level\": $VERIFY_LEVEL_VAL,
      \"completed_at\": \"$(date -Iseconds)\"
    }
    JSON"
    ```
 
-2. **写完立即自检 schema** — `jq -e` 验证 6 个根字段都在,任一缺失即 raise + 重写:
+2. **写完立即自检 schema** — `jq -e` 验证 7 个根字段都在,任一缺失即 raise + 重写:
 
    ```bash
-   for f in passed failed_at evidence notes confidence completed_at; do
+   for f in passed failed_at evidence notes confidence verify_level completed_at; do
        jq -e --arg k "$f" 'has($k)' "$WORKSPACE/results/verify.json" >/dev/null \
            || { echo "FATAL verify.json 缺字段: $f" >&2; exit 1; }
    done
@@ -218,7 +237,7 @@ GPU 利用低(< 1GB used 或全程 0% 利用)→ `passed=false, failed_at="gpu_u
 
 ## 🔴 反模式(L1 实测出现过的真实问题,**严禁重演**)
 
-- ❌ **自创 verify.json schema** — `{status, checks, ...}` 或 `{status, verdict, ...}` 都不行(L1 实测 hunyuan3d-2 + omnivoice 撞过)。**必须** 6 字段 `passed/failed_at/evidence/notes/confidence/completed_at`。下游 cleanup G4 `jq -r '.passed'` 拿到 null → 误判 verify 没过
+- ❌ **自创 verify.json schema** — `{status, checks, ...}` 或 `{status, verdict, ...}` 都不行(L1 实测 hunyuan3d-2 + omnivoice 撞过)。**必须** 7 字段 `passed/failed_at/evidence/notes/confidence/verify_level/completed_at`。下游 cleanup G4 `jq -r '.passed'` 拿到 null → 误判 verify 没过
 - ❌ **passed 字段写字符串** — `"passed": "true"` 不行,必须 boolean `true`/`false`。第 2 步 jq -e 会拦
 - ❌ **缺 failed_at** — passed=true 时填 `null`(JSON null,不是字符串 "null");passed=false 时填具体 step name 字符串
 - ❌ **smoke fail 了改 config 重跑** — 你没 Edit 工具,runner 的事。verify 只判定不修
@@ -231,3 +250,12 @@ GPU 利用低(< 1GB used 或全程 0% 利用)→ `passed=false, failed_at="gpu_u
 - ❌ "passed 真假我不确定,我写 null 让人决定" — **不**.verify 的存在就是给布尔判定.不确定 = 走 `passed:false, failed_at:"gpu_utilization"` 或类似,**永远不写 null**
 - ❌ "smoke fail 了,可能是 batch_size 太大,我改下 config 重跑" — **不**.你没 Edit 工具.runner 的事
 - ❌ "看下 runner 之前是怎么修的" — **不**.读 run_result 破坏独立判定原则
+
+## ChangeLog
+
+- **2026-06-10** — 加 verify_level 分级验证(L0 存在性 / L1 内容级)
+  - 变更类型: schema(根字段 6→7)+ 流程
+  - 影响范围: 第 4 步后新增"验证级别"段 / 返回 schema / 强制要求 heredoc + 自检 / `scripts/validate-verify.sh`(V2 列表 + 新 V6)
+  - 动机: "有声音且够长"≠"声音是要的" — L0 全过仍可能内容不对,下游需要知道验到哪一级
+  - 证据: [fixes/2026-05-29-verify-content-level-check-fix.md](../../../docs/superpowers/fixes/2026-05-29-verify-content-level-check-fix.md)
+  - 验证: ✅ validate-verify.sh fixture 双向(含 verify_level PASS / 缺失 FAIL)

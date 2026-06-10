@@ -5,7 +5,7 @@
 - **Fix ID**: `2026-05-29-polling-handoff-mechanism-fix`
 - **创建日期**: 2026-05-29(回填自 2026-05-26 retro)
 - **级别**: P0(系统级,每个 auto-deploy run 共用)
-- **状态**: 进行中(设计方案已有,未落地)
+- **状态**: ✅ 已闭环(MVP 档;watchdog/supervisord 加固档转 env-no-daemon fix 残留)
 - **负责人 / session**: 用户实测发现 + Claude session @ 2026-05-29 回填
 
 ---
@@ -118,7 +118,7 @@
 
 ## 修复结果
 
-- **状态**: ⚠️ 部分落地(代码侧 MVP 已加,待 L1 接续验证)
+- **状态**: ✅ 成功(MVP:R10 sentinel + hook 自愈)
 - **验证证据**:
   - 设计方案见 `workspace/hunyuan3d-2/results/2026-05-26-polling-handoff-analysis.md`
   - 2026-06-04 已新增 R10 handoff sentinel 约定、SessionStart resume hints、SessionEnd handoff audit
@@ -158,3 +158,16 @@
 - [ ] **是否提升到 memory/lessons** → 是(跨项目通用:`daemon-less-handoff.md`)
 - [ ] **是否需要 L1 / L2 重测验证** → 是(MVP 落地后用 hunyuan workspace 实跑验证)
 - [ ] **是否需要写 pending_human** → 否(方案已定,待排期实施)
+
+---
+
+## 闭环补记(2026-06-10)
+
+MVP 三件套已全部落地并经真实 run 验证:
+- **R10 已入 `.claude/CLAUDE.md`**(2026-06-04):长任务必写 sentinel,生产者写终态
+- **session-start.sh** 扫 handoff sentinel + paused 任务,注入 "dispatch the matching SubAgent via Task() to resume" hint(行 60-92)
+- **fetch-weights / install-env** 后台长任务 wrapper 写 sentinel(各自 SKILL 2026-06-04 ChangeLog)
+
+**L1 实证**:run `cron-2026-06-10-143028` — eagle `paused_in_progress`(11:35 留下)被 session 起始扫描发现,主 agent Task() dispatch fetch-agent 成功接续,state 正常推进(fetching→paused_for_human,gated 403)。"权重下完没人接手干等"的场景已被 sentinel+接续机制覆盖。
+
+**残留(加固档,不阻塞本 fix)**:cron/watchdog.sh 常驻看门狗、supervisord entrypoint — 归 [2026-05-29-env-no-daemon-auto-not-closed-loop-fix.md](2026-05-29-env-no-daemon-auto-not-closed-loop-fix.md) 第 3 档跟踪。

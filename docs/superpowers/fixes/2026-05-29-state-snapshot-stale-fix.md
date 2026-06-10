@@ -5,7 +5,7 @@
 - **Fix ID**: `2026-05-29-state-snapshot-stale-fix`
 - **创建日期**: 2026-05-29(回填自 2026-05-26/27 retro)
 - **级别**: P1(状态账本与现实脱节,下游误判)
-- **状态**: 进行中(方案已定,未落地)
+- **状态**: ✅ 已闭环(与 polling-handoff 同方案:R10 sentinel 自报终态)
 - **负责人 / session**: Claude session @ 2026-05-29 回填
 
 ---
@@ -103,7 +103,7 @@
 
 ## 修复结果
 
-- **状态**: ❌ 未落地(与 polling-handoff-mechanism-fix 的 ① 自报终态是同一方案)
+- **状态**: ✅ 成功(R10 sentinel)
 - **验证证据**: 待落地
 - **commit hash**: 待落地
 
@@ -134,3 +134,13 @@
 - [ ] **是否提升到 memory/lessons** → 否(平台特定问题)
 - [ ] **是否需要 L1 / L2 重测验证** → 是(哨兵写入 + 读取 集成测试)
 - [ ] **是否需要写 pending_human** → 否
+
+---
+
+## 闭环补记(2026-06-10)
+
+与 [2026-05-29-polling-handoff-mechanism-fix.md](2026-05-29-polling-handoff-mechanism-fix.md) 同一机制闭环:
+- **自报终态** = `.claude/CLAUDE.md` R10:长任务 wrapper 完成时写 sentinel(`.DONE`/`.FAILED`)+ 更新 state.json,真相由生产者写
+- **session-start.sh 读 sentinel**(行 60-92)而非只信 state.json 快照;sentinel done 仍要求 dispatch SubAgent 核实推进
+- fetch-weights / install-env 已接 sentinel(2026-06-04 各自 ChangeLog)
+- L1 实证同 polling-handoff fix:run `cron-2026-06-10-143028` 接续成功

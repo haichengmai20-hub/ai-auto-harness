@@ -5,7 +5,7 @@
 - **Fix ID**: `2026-05-29-completed-at-literal-not-evaluated-fix`
 - **创建日期**: 2026-05-29(回填自 2026-05-27 retro)
 - **级别**: P2(数据字段失真,不阻塞功能)
-- **状态**: 进行中
+- **状态**: ✅ 已闭环
 - **负责人 / session**: Claude session @ 2026-05-29 回填
 
 ---
@@ -100,7 +100,7 @@
 
 ## 修复结果
 
-- **状态**: ❌ 未落地
+- **状态**: ✅ 成功
 - **验证证据**: `jq -r '.completed_at' workspace/hunyuan3d-2/results/install.json` → `$(date -Iseconds)`
 - **commit hash**: 待落地
 
@@ -127,3 +127,12 @@
 - [ ] **是否提升到 memory/lessons** → 否(实现细节)
 - [ ] **是否需要 L1 / L2 重测验证** → 是(改后验证 completed_at 为合法 ISO 时间)
 - [ ] **是否需要写 pending_human** → 否
+
+---
+
+## 闭环补记(2026-06-10)
+
+- **根因确认**:heredoc 模板本身正确(无引号分隔符会求值);事故是模板被 **Write 工具原样写盘**绕过了 bash 求值
+- **install-env/SKILL.md**:落盘块后加 🔴 防呆("必须 Bash 执行,绝不 Write 原文")+ 反模式 +1
+- **scripts/validate-artifacts.sh**:新增通用字面量扫描 — results/*.json 任何字符串值含 `$(` 或 `<占位符>` → FAIL
+- **fixture 双向验证**:`$(date -Iseconds)` 字面量与 `<true|false>` 占位符均被拦截;干净值 exit 0

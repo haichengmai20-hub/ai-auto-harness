@@ -302,6 +302,8 @@ echo "=== PHASE_END   phase=run-and-repair slug=$SLUG status=done ts=$(date -Ise
 }
 ```
 
+**`repair_count` / `fixes_applied` 的统计口径(必须遵守)**:任何为了让 entry_script 跑通而做的**适配动作都算修复**,不只是"重试 python 命令"。包括:改 import / 换 library 版本 / 改 config / patch 源代码 / 改 batch_size / 写 wrapper 脚本 / 改 entry 参数。每个动作在 `fixes_applied` 里一条,`repair_count` = 修复**轮数**(一轮可含多个动作)。omnivoice 实测翻车:transcript 里 52 处代码适配,run.json 却写 `repair_count: 0` — 下游报告/复盘全失真。
+
 ## 反模式
 
 - ❌ 跑模型用 `Bash(timeout=600)` 同步阻塞(长任务必须 background)
@@ -310,3 +312,12 @@ echo "=== PHASE_END   phase=run-and-repair slug=$SLUG status=done ts=$(date -Ise
 - ❌ 修第 4 5 6 轮还在试(应该早 raise)
 - ❌ 重写整个文件而不是小改(易引入新 bug)
 - ❌ 不看 nvidia-smi 就判定"模型在跑"
+- ❌ 有真实代码/配置适配却把 `repair_count` 写 0、`fixes_applied` 留空 — 适配动作(改 import/config/patch 代码)都必须入账
+
+## ChangeLog
+
+- **2026-06-10** — repair_log 统计口径扩大(适配动作都算修复)
+  - 变更类型: schema 语义 + 反模式
+  - 影响范围: 返回 schema 说明 / 反模式段
+  - 动机: omnivoice transcript 有 52 处真实代码适配,run.json 写 repair_count=0,下游报告失真
+  - 证据: [fixes/2026-05-29-run-json-process-field-inaccurate-fix.md](../../../docs/superpowers/fixes/2026-05-29-run-json-process-field-inaccurate-fix.md)

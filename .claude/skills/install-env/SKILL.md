@@ -271,6 +271,10 @@ echo "==== install-env end at $(date -Iseconds) ====" >> "$LOG"
 echo "=== PHASE_END   phase=install-env slug=$SLUG status=done ts=$(date -Iseconds) ==="
 ```
 
+> 🔴 上面两个 heredoc **必须用 Bash 工具执行**(无引号 `JSON` 分隔符,`$(date)` 在 bash 里求值)。
+> **绝不要把模板原文用 Write 工具直接写成 .json 文件** — 那样 `$(date -Iseconds)` / `<true|false>`
+> 会变成字面量字符串落盘(hunyuan3d-2 实测翻车;`scripts/validate-artifacts.sh` 现在会 FAIL 这种值)。
+
 ## 返回 schema
 
 ```json
@@ -289,9 +293,16 @@ echo "=== PHASE_END   phase=install-env slug=$SLUG status=done ts=$(date -Isecon
 - ❌ 卸载系统级 python / 改 ~/.bashrc 改 PATH
 - ❌ 强装某个特定版本而没看 lessons(浪费时间)
 - ❌ 第 4 次重装 torch 还没好 → 必须 raise pending_human
+- ❌ 用 Write 工具把含 `$(date)` / `<占位符>` 的 JSON 模板原样写盘 — 时间戳必须经 Bash heredoc 求值或 `jq --arg ts "$(date -Iseconds)"` 注入
 
 ## ChangeLog
 
+- **2026-06-10** — 时间戳/占位符字面量防呆
+  - 变更类型: 反模式 + 验证
+  - 影响范围: 第 8 步落盘块注意事项 / 反模式段 / `scripts/validate-artifacts.sh`(通用字面量扫描)
+  - 动机: hunyuan3d-2 的 install.json `completed_at` 落成 `$(date -Iseconds)` 字面量 — 模板被 Write 工具原样写盘而非 Bash 求值
+  - 证据: [fixes/2026-05-29-completed-at-literal-not-evaluated-fix.md](../../../docs/superpowers/fixes/2026-05-29-completed-at-literal-not-evaluated-fix.md)
+  - 验证: ✅ validate-artifacts.sh fixture 双向测试(坏值 FAIL / 干净 PASS)
 - **2026-06-04** — pip 长任务写 handoff sentinel
   - 变更类型: 流程 / schema
   - 影响范围: 第 3 步后台 pip wrapper

@@ -5,7 +5,7 @@
 - **Fix ID**: `2026-05-29-env-no-daemon-auto-not-closed-loop-fix`
 - **创建日期**: 2026-05-29(回填自 2026-05-26 分析)
 - **级别**: P0(自动化基础设施缺失,所有 cron-driven 设计形同虚设)
-- **状态**: 进行中(环境问题,需运维层改动)
+- **状态**: ✅ 已闭环(第 2 档:cron 已装好真实触发;第 3 档 supervisord entrypoint 留运维)
 - **负责人 / session**: 用户实测发现 + Claude session @ 2026-05-29 回填
 
 ---
@@ -113,7 +113,7 @@
 
 ## 修复结果
 
-- **状态**: ⚠️ 部分落地(代码侧 healthcheck + 文档已加;daemon 安装仍需运维批准)
+- **状态**: ✅ 成功(第 2 档)
 - **验证证据**:
   - 环境现状如"现象"段 5 条证据
   - 2026-06-04 新增 `scripts/healthcheck-daemon.sh`
@@ -147,3 +147,14 @@
 - [ ] **是否提升到 memory/lessons** → 是(环境前提声明是通用教训)
 - [ ] **是否需要 L1 / L2 重测验证** → 是(cron 装通后验证 `runs/` 下出现 cron-* 目录)
 - [ ] **是否需要写 pending_human** → 是(第 3 档改 entrypoint 需运维权限决策)
+
+---
+
+## 闭环补记(2026-06-10)
+
+第 2 档(cron daemon)已是生产事实:
+- crontab 有 `0 9 * * *`(ai-daily-scan)+ `0 10 * * *`(ai-auto-harness daily.sh)两条主链路
+- **真实触发证据**:2026-06-10 当天 `runs/cron-2026-06-10-100001`(10:00 整点 cron)、`cron-2026-06-10-111701` 等皆由 crond 自动产生,9:00 scan 也正常产出 findings
+- 环境前提已文档化:README.md:624(需要 cron/supervisord;agent 不得擅自 `apt install`)+ `healthcheck-daemon.sh`
+
+**残留(第 3 档,需运维拍板)**:容器重启后 crond 是否自启未验证;根治 = supervisord 当 entrypoint。不阻塞日常闭环。

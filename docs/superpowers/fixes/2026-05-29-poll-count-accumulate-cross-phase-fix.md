@@ -5,7 +5,7 @@
 - **Fix ID**: `2026-05-29-poll-count-accumulate-cross-phase-fix`
 - **创建日期**: 2026-05-29(回填自 2026-05-27 retro)
 - **级别**: P2(计数器逻辑缺陷,不阻塞部署但削弱 R4 保护)
-- **状态**: 进行中
+- **状态**: ✅ 已闭环
 - **负责人 / session**: Claude session @ 2026-05-29 回填
 
 ---
@@ -100,7 +100,7 @@
 
 ## 修复结果
 
-- **状态**: ❌ 未落地
+- **状态**: ✅ 成功
 - **验证证据**: 待落地
 - **commit hash**: 待落地
 
@@ -128,3 +128,12 @@
 - [ ] **是否提升到 memory/lessons** → 否(hook 实现细节)
 - [ ] **是否需要 L1 / L2 重测验证** → 是(改后验证 poll_count 单阶段 ≤ 8)
 - [ ] **是否需要写 pending_human** → 否
+
+---
+
+## 闭环补记(2026-06-10)
+
+- **post-tool-use.sh**:R4.5 计数前检测 Bash 命令含 `PHASE_START` → `poll_count` 重置 0(计数按阶段)
+- **`.claude/CLAUDE.md` R4.5** 加 enforcement 注记
+- **单测 4/4**:poll_count=7 → tail → 8(无告警);PHASE_START → 0;再 tail → 1(无告警);置 8 再 tail → 9 触发 R4.5 告警
+- 注:2026-05-29 当时写的 hook 逻辑因 run-id 孤儿目录 bug(2026-06-02 修)从未生效;本次为 hook 真实生效后的正式落地

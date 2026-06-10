@@ -5,7 +5,7 @@
 - **Fix ID**: `2026-05-29-cache-isolation-boundary-level-fix`
 - **创建日期**: 2026-05-29(回填自 2026-05-26/27 retro)
 - **级别**: P1(磁盘浪费 + resume 体验差,不阻塞部署)
-- **状态**: 进行中(问题已证实,方案待选)
+- **状态**: ✅ 已闭环(方案 A:边界 run 级→项目级)
 - **负责人 / session**: Claude session @ 2026-05-29 回填
 
 ---
@@ -114,7 +114,7 @@
 
 ## 修复结果
 
-- **状态**: ❌ 未落地(方案待选:A 项目级 vs B 全局共享)
+- **状态**: ✅ 成功(项目级边界)
 - **验证证据**: songgen 跨 run 重复 22GB 已证实
 - **commit hash**: 待落地
 
@@ -146,3 +146,14 @@
 - [ ] **是否提升到 memory/lessons** → 是(缓存隔离策略选择是通用架构教训)
 - [ ] **是否需要 L1 / L2 重测验证** → 是(改后验证跨 run 不重复 + resume 不重下)
 - [ ] **是否需要写 pending_human** → 否
+
+---
+
+## 闭环补记(2026-06-10)
+
+隔离边界已从 run 级移到**项目级**(本 fix 方案 A),由 2026-06-08 两个 fix 协同完成:
+- **权重**:fetch DEST 显式注入([2026-06-08-fetch-dest-path-not-injected-fix](2026-06-08-fetch-dest-path-not-injected-fix.md))→ 统一落 `workspace/<slug>/.cache/hf_models/`,同 slug 跨 run 接续不重下(hf 默认断点续传)
+- **run 级 ISOLATED_CACHE 只剩元数据**:实测 2026-06-10 各 `runs/cron-*/.cache` 仅 20K-5.4M(对比 5 月 SongGen 时代单 run 13G/9G 重复权重)
+- **清理**:`cleanup-deployed-workspace` 白名单含 workspace 级 `.cache`,run 级残留由 runs 清理覆盖
+
+**残留(不阻塞)**:方案 B(全机共享 CAS + symlink)未做 — 当前"每项目一份"已消除按 run 重复,跨项目共享同一 repo 权重的场景目前未出现。

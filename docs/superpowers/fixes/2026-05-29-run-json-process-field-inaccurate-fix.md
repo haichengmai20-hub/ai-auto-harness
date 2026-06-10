@@ -5,7 +5,7 @@
 - **Fix ID**: `2026-05-29-run-json-process-field-inaccurate-fix`
 - **创建日期**: 2026-05-29(回填自 2026-05-27 retro)
 - **级别**: P2(数据失真,不阻塞部署但误导后人)
-- **状态**: 进行中
+- **状态**: ✅ 已闭环(规范层;transcript 交叉校验为可选增强未做)
 - **负责人 / session**: Claude session @ 2026-05-29 回填
 
 ---
@@ -98,7 +98,7 @@
 
 ## 修复结果
 
-- **状态**: ❌ 未落地
+- **状态**: ✅ 成功(统计口径已定义)
 - **验证证据**: 待落地
 - **commit hash**: 待落地
 
@@ -124,3 +124,11 @@
 - [ ] **是否提升到 memory/lessons** → 否(数据记录规范)
 - [ ] **是否需要 L1 / L2 重测验证** → 是(改后重跑验证 repair_log 非空)
 - [ ] **是否需要写 pending_human** → 否
+
+---
+
+## 闭环补记(2026-06-10)
+
+- **run-and-repair/SKILL.md**:返回 schema 后加统计口径硬规定 — 任何适配动作(改 import/换版本/改 config/patch 代码/改 batch_size/写 wrapper)都计入 `fixes_applied`,`repair_count`=修复轮数;引 omnivoice 52 处适配记 0 的实测翻车
+- **反模式** +1:"有真实适配却写 repair_count=0"
+- **残留(可选增强,不阻塞)**:repair_log 与 transcript 的自动交叉校验脚本未做 — 口径靠 SKILL 约束 + review

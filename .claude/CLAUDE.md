@@ -154,6 +154,7 @@ phase 开始时记 `started_at`,每次 poll 前 `$(date +%s) - $(date -d "$start
 #### R4.5 turn 预算上限
 
 同一 phase 内的"poll"操作(tail / ps / du / sleep)**累计 ≤ 8 个 turn**。超过即 return `paused_in_progress`,让主 agent 决定要不要接续。
+(enforcement:PostToolUse hook 见到 Bash 命令含 `PHASE_START` 即把 `poll_count` 重置 0 — 计数按阶段,不跨阶段累计;Fix: 2026-05-29-poll-count-accumulate-cross-phase)
 
 **核心原则**:LLM turn 不是免费的。每个 turn = 一次完整 LLM 推理 + full-context token 重发(sleep > 5min 必 cache miss)。一个空转 turn 比 cron 下次接续(0 token)贵 1000 倍。**退出比 sleep 划算**。
 

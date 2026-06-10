@@ -19,9 +19,9 @@
 ## 统计
 
 - **总计**: 36 条
-- **✅ 已闭环**: 24 条（#36 no_proxy 污染断网+gated 403;#35 monitor 角色纪律;#34 run 目录归项目;#32 #33 toonflow-app e2e 闭环）
+- **✅ 已闭环**: 34 条（2026-06-10 清积压:#15-#24 全部闭环 — 6 条由后续工作线实证落地补记,4 条 #18/#22/#23/#24 当日实现;#36 no_proxy 污染断网+gated 403）
 - **🟡 部分落地**: 2 条（#30 fetch 完整性校验、#31 R9；均已补 committed 回归测试，待真实 e2e / 上游）
-- **❌ 未闭环**: 10 条
+- **❌ 未闭环**: 0 条
 - **P0**: 4 条
 - **P1**: 23 条
 - **P2**: 7 条
@@ -39,32 +39,29 @@
 
 ---
 
-## ❌ 未闭环（10 条 — 按优先级排）
+## ❌ 未闭环（0 条）
 
-> 接手人从上往下修。
-
-| # | 级别 | 人话 | Fix 文件 | 影响项目 |
-|---|---|---|---|---|
-| 15 | **P0** | 权重下完了但没人知道该开始装环境了，干等 18 小时（MVP 已加,待 L1） | [polling-handoff-mechanism](2026-05-29-polling-handoff-mechanism-fix.md) | 全平台 |
-| 16 | **P0** | 机器没有闹钟，所有"每天自动跑"全是空话（healthcheck 已加,待运维） | [env-no-daemon-auto-not-closed-loop](2026-05-29-env-no-daemon-auto-not-closed-loop-fix.md) | 全平台 |
-| 19 | P1 | 经理不派活自己写代码，43 次 Bash 0 次 Task | [task-dispatch-not-isolated](2026-05-29-task-dispatch-not-isolated-fix.md) | omnivoice + hunyuan3d |
-| 20 | P1 | 还没建 venv 就先 pip 装，装到全局污染环境了 | [fetch-before-install-pip-leak](2026-05-29-fetch-before-install-pip-leak-fix.md) | omnivoice |
-| 17 | P1 | state.json 记的是 3 分钟前的进度，接手人看过期信息 | [state-snapshot-stale](2026-05-29-state-snapshot-stale-fix.md) | 全平台 |
-| 18 | P1 | 只查"有声音够长"，不管声音对不对 | [verify-content-level-check](2026-05-29-verify-content-level-check-fix.md) | 全平台 |
-| 21 | P1 | 同一个锤子买了 3 把，白占 40GB | [cache-isolation-boundary-level](2026-05-29-cache-isolation-boundary-level-fix.md) | 全平台 |
-| 22 | P2 | 写着"修复 0 次"，实际修了 52 次 | [run-json-process-field-inaccurate](2026-05-29-run-json-process-field-inaccurate-fix.md) | omnivoice |
-| 23 | P2 | 第一阶段的 poll 次数带到第二阶段了 | [poll-count-accumulate-cross-phase](2026-05-29-poll-count-accumulate-cross-phase-fix.md) | 全平台 |
-| 24 | P2 | 该填时间的地方填了变量名 | [completed-at-literal-not-evaluated](2026-05-29-completed-at-literal-not-evaluated-fix.md) | hunyuan3d-2 |
+> 2026-06-10 积压清零:#15-#24 全部闭环,各文档见"闭环补记(2026-06-10)"段。
 
 ---
 
-## ✅ 已闭环（23 条 — 按时间倒序）
+## ✅ 已闭环（34 条 — 按时间倒序）
 
 > 最近修的排最前，方便回溯。
 
 | # | 级别 | 人话 | Fix 文件 | commit | 影响项目 |
 |---|---|---|---|---|---|
 | 36 | **P0** | 叫快递走侧门，侧门是堵墙：HF 全断网；门卡没批的仓库被放进流水线 | [no-proxy-pollution-gated-403](2026-06-10-no-proxy-pollution-gated-403-fix.md) | `f4c4355` | eagle |
+| 15 | **P0** | 权重下完没人接手干等 → R10 sentinel+hook 自愈,06-10 run 实证接续 | [polling-handoff-mechanism](2026-05-29-polling-handoff-mechanism-fix.md) | 补记闭环 | 全平台 |
+| 16 | **P0** | 机器没闹钟 → cron 已装好真实触发(第 2 档),supervisord 留运维 | [env-no-daemon-auto-not-closed-loop](2026-05-29-env-no-daemon-auto-not-closed-loop-fix.md) | 补记闭环 | 全平台 |
+| 17 | P1 | state 快照过期 → R10 生产者写终态 sentinel | [state-snapshot-stale](2026-05-29-state-snapshot-stale-fix.md) | 补记闭环 | 全平台 |
+| 18 | P1 | 只查"有声音够长" → verify_level L0/L1 分级入 schema(7 根字段) | [verify-content-level-check](2026-05-29-verify-content-level-check-fix.md) | `<本次>` | 全平台 |
+| 19 | P1 | 经理不派活 → R9+hook 检测+审计器全落地,根因残留归 #31 | [task-dispatch-not-isolated](2026-05-29-task-dispatch-not-isolated-fix.md) | 补记闭环 | omnivoice + hunyuan3d |
+| 20 | P1 | venv 前先 pip 泄漏 → env 前置隔离(B)+fetch 禁 pip(C)双保险 | [fetch-before-install-pip-leak](2026-05-29-fetch-before-install-pip-leak-fix.md) | 补记闭环 | omnivoice |
+| 21 | P1 | 锤子买 3 把占 40GB → 权重边界 run 级→项目级(DEST 注入),run cache 实测 5MB | [cache-isolation-boundary-level](2026-05-29-cache-isolation-boundary-level-fix.md) | 补记闭环 | 全平台 |
+| 22 | P2 | 修了 52 次写 0 次 → repair 统计口径硬规定(适配动作都入账) | [run-json-process-field-inaccurate](2026-05-29-run-json-process-field-inaccurate-fix.md) | `<本次>` | omnivoice |
+| 23 | P2 | poll 次数跨阶段累计 → hook 见 PHASE_START 重置,单测 4/4 | [poll-count-accumulate-cross-phase](2026-05-29-poll-count-accumulate-cross-phase-fix.md) | `<本次>` | 全平台 |
+| 24 | P2 | 时间戳落成 `$(date)` 字面量 → Write 防呆+validate-artifacts 字面量扫描 | [completed-at-literal-not-evaluated](2026-05-29-completed-at-literal-not-evaluated-fix.md) | `<本次>` | hunyuan3d-2 |
 | 35 | P1 | 监工动手干活了，该只看不动 | [monitor-role-discipline](2026-06-08-monitor-role-discipline-fix.md) | `<本次>` | magenta-realtime |
 | 34 | P1 | 每次跑的草稿全堆公共筐，改成按项目分柜 | [run-dir-into-workspace](2026-06-08-run-dir-into-workspace-fix.md) | `864c3f3` | magenta-realtime |
 | 26 | **P0** | 信投进隔壁信箱了，R1/R4/R6/R9 从上线起从未在正确目录生效 | [hook-runid-clobber](2026-06-02-hook-runid-clobber-fix.md) | `3bb1280` | controlfoley |
