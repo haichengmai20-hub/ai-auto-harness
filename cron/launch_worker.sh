@@ -119,6 +119,12 @@ export HF_HUB_DISABLE_XET=1
 export HF_HUB_DOWNLOAD_CONCURRENCY="${HF_HUB_DOWNLOAD_CONCURRENCY:-2}"
 echo "HF download: XET=disabled CONCURRENCY=$HF_HUB_DOWNLOAD_CONCURRENCY (proxy-safe)" >> "$LOG_DIR/meta.json"
 
+# ============ 启动前对账:sentinel / R3 wall-clock ============
+# (Fix: 2026-06-10-external-review-sentinel-wallclock-runs-fix)
+# 死掉的 "running" sentinel / stale "running" state 先改写为真相,接续判断才可信。
+bash "$HARNESS_ROOT/scripts/reconcile-sentinels.sh" "$HARNESS_ROOT" >> "$LOG_DIR/meta.json" 2>&1 || true
+bash "$HARNESS_ROOT/scripts/enforce-wallclock.sh" "$HARNESS_ROOT" >> "$LOG_DIR/meta.json" 2>&1 || true
+
 # ============ 启动前清理:扫旧的僵尸 worker / 残留 bg 进程 ============
 # 用户报反复僵尸 [bun] <defunct>(run2 / run1 多次留尸).
 # 这里只清"明确死了"的:对每个 runs/<run-id>/worker.pid,kill -0 不通 → 找它的子进程清理.

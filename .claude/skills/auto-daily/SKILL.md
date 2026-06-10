@@ -63,9 +63,11 @@ echo "$SUBAGENT_RESULT" > "$RUN_DIR/${PHASE}.json"
 find workspace -maxdepth 2 -name state.json -exec jq -c '{slug, phase, phases_done, updated_at, started_at}' {} \; 2>/dev/null
 ```
 
-筛选 `state.phase ∉ {done, paused_for_human}` 的项目(in_progress)。
+筛选 `state.phase ∉ {done, paused_for_human}` **且 `state.status != "paused_for_human"`** 的项目(in_progress)。(status 才是暂停轴 — eagle 实测 phase=fetch-weights + status=paused_for_human,只看 phase 会误接续)
 
 也扫 `pending_human/*.md`(不重跑,但报告里要标)。
+
+**outcome 补回填(2026-06-10 外部 review #20 采纳)**:若 `state/outcomes-pending.jsonl` 存在且非空 — 这是上次 run record_outcome MCP 调用失败的本地暂存 — 逐行重试 `mcp__ai_daily_scan__record_outcome(...)`,成功的行从文件移除(全部成功则删文件)。不补回填,scan 会重复推荐已处理过的项目。
 
 ### 任务 2:项目选择
 
@@ -291,3 +293,8 @@ force_cleanup_incomplete: false
   - 动机: magenta-realtime 实测 5 个 hf download 拼出 3 种不同 --local-dir,根因是 Task() prompt 未传 DEST,SubAgent 自拼
   - 证据: [fixes/2026-06-08-fetch-dest-path-not-injected-fix.md](../../../docs/superpowers/fixes/2026-06-08-fetch-dest-path-not-injected-fix.md)
   - 验证: ⬜ 待验证(重跑 magenta-realtime fetch 阶段)
+- **2026-06-10** — 任务 1 筛选加 status 轴 + outcomes-pending 重试
+  - 变更类型: 硬约束(筛选语义修正)+ 流程
+  - 影响范围: 任务 1 接续与积压检查
+  - 动机: eagle 实测 phase=fetch-weights + status=paused_for_human,旧筛选只看 phase 会误接续再撞一次 gated 403;record_outcome MCP 失败时结果静默丢失,scan 重复推荐
+  - 证据: [fixes/2026-06-10-external-review-sentinel-wallclock-runs-fix.md](../../../docs/superpowers/fixes/2026-06-10-external-review-sentinel-wallclock-runs-fix.md)

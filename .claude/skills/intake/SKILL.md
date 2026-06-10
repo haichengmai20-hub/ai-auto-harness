@@ -66,6 +66,7 @@ git clone --depth=1 "$GITHUB_URL" repo 2>&1 | tee -a "$LOG"
 用 Read 工具读(优先级):
 - `$WORKSPACE/repo/README.md`(找 Quickstart / Inference / Demo 章节)
 - `$WORKSPACE/repo/setup.py` 或 `pyproject.toml`
+  - **python 版本判定(2026-06-10)**:优先取 `pyproject.toml` 的 `requires-python` / `setup.py`/`setup.cfg` 的 `python_requires` 字段为准;repo 没声明才允许从 README/代码特征推断,且 intake.json 里必须标 `"python_version_confidence": "low"`(实测 "3.10+ (inferred)" 这种推断经常不准,害 install 阶段重装)
 - `$WORKSPACE/repo/requirements*.txt`
 - `$WORKSPACE/repo/*example*.py`、`inference*.py`、`demo*.py`、`app.py`
 - `$WORKSPACE/repo/configs/*.yaml`(若有)
@@ -167,3 +168,11 @@ echo "=== PHASE_END   phase=intake slug=$SLUG status=done ts=$(date -Iseconds) =
   "ready_to_fetch": true
 }
 ```
+
+## ChangeLog
+
+- **2026-06-10** — python 版本判定优先 requires-python 字段,推断必标 low confidence
+  - 变更类型: 流程 / schema 语义
+  - 影响范围: 第 3 步读核心文件
+  - 动机: intake.json 常见 "3.10+ (inferred, not pinned)" 推断不准,害 install 阶段重装
+  - 证据: [fixes/2026-06-10-external-review-sentinel-wallclock-runs-fix.md](../../../docs/superpowers/fixes/2026-06-10-external-review-sentinel-wallclock-runs-fix.md)

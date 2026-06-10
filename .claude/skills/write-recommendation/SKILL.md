@@ -64,6 +64,7 @@ Template(实际写时按 run_results 内容填):
 
 - **GPU**:8 卡中 `<X>` 卡可用(>2GB free)
 - **磁盘**:free `<gb>` GB <若 < 100 标 ⚠️>
+- **当日 LLM 成本**:$`<sum>`(从当日各 `runs/cron-*/harness.stdout.ndjson` 末尾 `result` 事件抽 `total_cost_usd` 求和;**不含本 run**,本 run 的 result 事件在报告写完后才落)
 
 <若磁盘 < 50GB,加 ALERT 段:>
 > ⚠️ **磁盘 ALERT** — 建议清理:
@@ -163,6 +164,14 @@ for result in run_results:
 
 这步**不能跳** — scan 内部下次跑会读 outcomes.jsonl 自动 skip 已成功的项目(去重),也会影响 next_action 推荐.
 
+**MCP 调用失败时的 fallback(2026-06-10 外部 review #20 采纳)** — 结果绝不能静默丢:
+
+```bash
+# record_outcome 抛错/超时 → 本地暂存,下次 cron 的 auto-daily 任务 1 重试回填
+echo '{"slug":"<slug>","status":"<status>","run_id":"<run_id>","error_class":null,"notes":"...","ts":"'$(date -Iseconds)'"}' \
+  >> /root/ai-auto-harness/state/outcomes-pending.jsonl
+```
+
 ## 第 4 步:`workspace/<slug>/state.json` phase=done
 
 ```bash
@@ -192,3 +201,11 @@ jq '.phase = "done"
 - ❌ 不要尝试 git push — 那是用户的事,我们只 commit 本地
 - ❌ 不要忘渲染 `runbook_path` 链接 — 它是下游 AI 复用本次部署的唯一入口
 - ❌ 不要在 `runbook_path` 为 null 时强写链接(失败 case 也可能没 runbook)— 用 `<若 runbook_path:>` 守卫
+
+## ChangeLog
+
+- **2026-06-10** — 报告加当日 LLM 成本行 + record_outcome 失败 fallback
+  - 变更类型: schema(报告模板)+ 流程
+  - 影响范围: 报告模板"资源状况"段 / 第 3 步 record_outcome
+  - 动机: 日报没有成本可见性;MCP 调用失败时 outcome 静默丢失,scan 下次重复推荐同一项目
+  - 证据: [fixes/2026-06-10-external-review-sentinel-wallclock-runs-fix.md](../../../docs/superpowers/fixes/2026-06-10-external-review-sentinel-wallclock-runs-fix.md)

@@ -1,5 +1,5 @@
 #!/bin/bash
-# AI Auto Harness — 每日 cron 入口(10:30 触发)
+# AI Auto Harness — 每日 cron 入口(10:00 触发)
 #
 # 启动姿势完全对齐 launch_worker.sh:
 #   IS_SANDBOX=1 + --dangerously-skip-permissions + --output-format stream-json
@@ -10,6 +10,16 @@
 # 不复用 launch_worker.sh 是因为 daily.sh 自己组装 prompt(auto-daily skill 触发),
 # 而 launch_worker.sh 是通用入口。两者维护时保持同步。
 set -e
+
+# ============ flock 防并发 ============
+# 若上一次 cron 还没跑完(长任务如 fetch-weights 跨 cron),新 cron 不再启动。
+# 锁文件在 /tmp,不污染 workspace/runs。
+LOCK_FILE="/tmp/ai-auto-harness-daily.lock"
+exec 200>"$LOCK_FILE"
+if ! flock -n 200; then
+    echo "[$(date -Iseconds)] 上一次 daily.sh 还在跑,flock 锁未释放,本次跳过" >&2
+    exit 0
+fi
 
 HARNESS_ROOT="${AI_AUTO_HARNESS_ROOT:-/root/ai-auto-harness}"
 CLAUDE_HAHA_BIN="${CLAUDE_HAHA_BIN:-$HARNESS_ROOT/bin/claude-haha}"
@@ -72,6 +82,14 @@ fi
 # 注:本机无直连外网能力,不能 unset proxy 或 no_proxy,只能禁 Xet + 降并发。
 export HF_HUB_DISABLE_XET=1
 export HF_HUB_DOWNLOAD_CONCURRENCY="${HF_HUB_DOWNLOAD_CONCURRENCY:-2}"
+
+# ============ 启动前对账:sentinel / R3 wall-clock / 老 runs ============
+# (Fix: 2026-06-10-external-review-sentinel-wallclock-runs-fix)
+# 顺序重要:先把死掉的 "running" sentinel 与 stale "running" state 改写为真相,
+# 否则本次 worker 的接续判断会基于谎言。三个脚本都保守:不 kill、不碰用户自管目录。
+bash "$HARNESS_ROOT/scripts/reconcile-sentinels.sh" "$HARNESS_ROOT" >> "$LOG_DIR/cleanup.log" 2>&1 || true
+bash "$HARNESS_ROOT/scripts/enforce-wallclock.sh" "$HARNESS_ROOT" >> "$LOG_DIR/cleanup.log" 2>&1 || true
+bash "$HARNESS_ROOT/scripts/clean-old-runs.sh" --delete "$HARNESS_ROOT" >> "$LOG_DIR/cleanup.log" 2>&1 || true
 
 # ============ 启动前清理僵尸 worker ============
 python3 - <<'PYEOF' 2>>"$LOG_DIR/cleanup.log" || true

@@ -72,6 +72,13 @@ echo "DEST template: $DEST_TEMPLATE (from prompt or fallback)" >> "$LOG"
 
 # 首次尝试用普通 HTTP 后端(非 Xet);若仍卡死,第 4 步检查磁盘/网络
 
+# 🔴 gated 前置读取(2026-06-10 外部 review #5 采纳):
+# intake 已做过 gated 试探,结果在 results/intake.json。blocked 的 repo 不要再试下载。
+GATED_BLOCKED=$(jq -r '.preflight.gated_ok // true' "$WORKSPACE/results/intake.json" 2>/dev/null)
+if [ "$GATED_BLOCKED" = "false" ]; then
+    echo "intake preflight 已标记 gated blocked → 直接走第 6 步 paused_for_human,不试下载" | tee -a "$LOG"
+fi
+
 # token 校验 — 没 token 会限速到 ~0.3MB/s,28GB 要下 26 小时
 if [ -z "$HF_TOKEN" ]; then
     echo "ERROR: HF_TOKEN 未传入。launch_worker.sh 应从 .env 注入。" >> "$LOG"
@@ -187,8 +194,9 @@ tail -30 "$WORKSPACE/logs/fetch_weights.log"
 
 每次 poll 做的事:
 
+0. **🔴 PID 死活 → sentinel 同步(2026-06-10)**:`kill -0 $PID` 失败(或 `/proc/$PID/stat` 第 3 列是 `Z` — 容器 PID 1 不收尸,僵尸也算死)→ **立即**按 wrapper 同款 schema 把 sentinel 写成终态(`status: "dead"` + `bytes` 用 `du -sb $DEST` 实测),再决定第 4 步重启还是接续。**绝不带着 "running" 的假 sentinel return** — scail 实测:wrapper 死了 5 小时 sentinel 还报 running,下次 cron 被骗
 1. **进度估算**:`du -sb $DEST` 拿当前字节数 / 预估总 size,算百分比
-2. **写 progress.md**:`- 2026-05-19T10:42 — fetching <repo>: 12.3GB / 23GB (53%), PID=12345 alive`
+2. **写 progress.md**:`- 2026-05-19T10:42 — fetching <repo>: 12.3GB / 23GB (53%), PID=12345 alive`;同时 append 一行机器可读的 `progress.json`:`{"ts":"...","repo":"...","bytes":N,"total_est":N,"pid":N,"alive":true}`(monitor / auto-status 直接读,不用解析人话)
 3. **磁盘检查**:`df -h "$WORKSPACE"` 看 free,< 30GB → KillBash 本 run 的 PID + 报告 disk_low(R1:**只杀本 PID 文件里的**)
 4. **`.incomplete` 文件大小变化检查**:`ls -la "$DEST"/*.incomplete 2>/dev/null`,记录每次 size,若 30min 无变化 → 卡了
 5. **Xet 错误计数**:`grep -Ei "tls handshake eof|403 Forbidden|xet" "$LOG" | tail -20`,若 TLS/403 循环 >3 次 → 第 4 步切 HTTP fallback
@@ -340,6 +348,7 @@ echo "=== PHASE_END   phase=fetch-weights slug=$SLUG status=done ts=$(date -Isec
 - ❌ **不要在无直连外网的机器上 unset proxy/no_proxy** — 会断网 → Network is unreachable
 - ❌ **不要把 `huggingface.co` 等外网域名加进 `no_proxy`** — 等于强制直连 = 断网(2026-06-10 实测把 fetch 全挂);`no_proxy` 只放内网 IP / 可直连的国内 API host
 - ❌ **不要把 gated 403 当网络错误重试** — `Access denied...requires approval` 是账号权限问题,重试 0 收益,直接走第 6 步 paused_for_human
+- ❌ **不要自创下载 wrapper 丢掉 sentinel 终态写入** — 第 2 步模板里 `RC=$? → python3 写 sentinel done/failed` 那段是 R10 的命根子;现场要改代理/参数就**在模板基础上改**,别从头手写(scail 实测:手写 wrapper 只写了 log 没写 sentinel,死了 5 小时还报 running)
 
 ## ChangeLog
 
@@ -373,6 +382,12 @@ echo "=== PHASE_END   phase=fetch-weights slug=$SLUG status=done ts=$(date -Isec
   - 动机: 旧规则 8("把 huggingface.co 加 no_proxy / unset 代理防 503")与 2026-06-08 修正版同时存在且编号冲突,用户照旧规则配 `.env` 后 fetch 全断网(本机无直连);另 HF gated-未获批返回 403 "Access denied...requires approval",旧文只认 401,eagle 漏检
   - 证据: [fixes/2026-06-10-no-proxy-pollution-gated-403-fix.md](../../../docs/superpowers/fixes/2026-06-10-no-proxy-pollution-gated-403-fix.md)
   - 验证: ✅ cron 等价环境 `hf download gpt2 config.json` 经代理成功;`nvidia/Eagle2.5-8B` 稳定复现 403 文案
+- **2026-06-10(二)** — sentinel 死活同步 + 禁自创 wrapper + gated 前置读 + progress.json
+  - 变更类型: 硬约束 + 反模式 + 流程
+  - 影响范围: 第 0 步 gated 前置读取 / 第 3 步 poll 第 0 项 / 反模式段
+  - 动机: scail 实测 — agent 现场手写 wrapper 丢掉 sentinel 终态写入,进程死 5h sentinel 仍 running;容器 PID 1 不收尸,kill -0 对僵尸误判活
+  - 证据: [fixes/2026-06-10-external-review-sentinel-wallclock-runs-fix.md](../../../docs/superpowers/fixes/2026-06-10-external-review-sentinel-wallclock-runs-fix.md)
+  - 验证: ✅ `scripts/reconcile-sentinels.sh` 实跑修正 3 个假 running sentinel
 - ❌ 不要 wait 一个 bg shell — poll
 - ❌ 不要不 export `HF_HOME` 等就跑下载 — 会污染 ~/.cache/huggingface
 - ❌ 不要在 cron 快到时间但还在下时 kill 进程 — 让它后台继续
