@@ -129,7 +129,7 @@
 
 | 日期 | Fix | 部署项目 | 影响 | commit | 状态 |
 |---|---|---|---|---|---|
-| 2026-06-10 | [claude-md-slimming-fix](../fixes/2026-06-10-claude-md-slimming-fix.md) | N/A 平台 | CLAUDE.md 23KB→7KB 结论版,详解外迁 specs/2026-06-10-r-rules-reference.md,规则零删减 | `<本次>` | ✅ 已闭环 |
+| 2026-06-10 | [claude-md-slimming-fix](../fixes/2026-06-10-claude-md-slimming-fix.md) | N/A 平台 | CLAUDE.md 23KB→7KB 结论版,详解外迁 specs/2026-06-10-r-rules-reference.md,规则零删减 | `8159339` | ✅ 已闭环 |
 | 2026-06-10 | [external-review-sentinel-wallclock-runs-fix](../fixes/2026-06-10-external-review-sentinel-wallclock-runs-fix.md) **P0** | scail + magenta | sentinel 假 running 对账脚本 + R3 wall-clock 代码兜底 + runs 保守清理 + 5 小补丁(外部 review 20 条裁决表见 fix 文档) | `2dca1df` | ✅ 已闭环 |
 | 2026-06-10 | [no-proxy-pollution-gated-403-fix](../fixes/2026-06-10-no-proxy-pollution-gated-403-fix.md) **P0** | eagle | `.env` no_proxy 含 huggingface.co → fetch 全断网;删 SKILL 过时绕代理规则;gated 403 分类(preflight+fetch) | `f4c4355` | ✅ 已闭环 |
 | 2026-06-03 | [fetch-weights-no-download-integrity-check-fix](../fixes/2026-06-03-fetch-weights-no-download-integrity-check-fix.md) | controlfoley | 下载后无完整性校验 + Xet 卡死无 fallback（committed 回归测试复现 469-vs-2.2GB，待真实 GPU e2e） | N/A | 🟡 部分落地 |

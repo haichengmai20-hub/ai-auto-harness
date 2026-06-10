@@ -90,8 +90,8 @@
 ## 修复结果
 
 - **状态**: ✅ 成功
-- **验证证据**: 见验证步骤回填
-- **commit hash**: 待 commit 后回填
+- **验证证据**: 22958B → 7179B(69% 减);规则覆盖自查表全勾;`grep` 确认 hooks/cron/scripts 无程序化解析
+- **commit hash**: `8159339`
 - **commit message**: `ai-auto: P2 fix #38 — CLAUDE.md 瘦身 23KB→结论版,详解外迁 r-rules-reference`
 
 ---

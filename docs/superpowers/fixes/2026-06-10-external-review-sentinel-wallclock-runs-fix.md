@@ -68,7 +68,7 @@
 | 5 | gated preflight 不可信 | ✅ **部分采纳** | preflight 403 分类当日已修(#36);采纳增量=fetch 第 0 步先读 intake.json 的 gated 结果,blocked 不试下载 |
 | 6 | 并发 hf 竞争检测 | ➖ **已覆盖** | per-repo pgrep 防护(#28)+ P2-11 僵尸审计已在;全局加强暂缓 |
 | 7 | R3 无强制 | ✅ **采纳** | → `scripts/enforce-wallclock.sh`(stale running → paused_in_progress,1.5× 容忍,绝不 kill) |
-| 8 | CLAUDE.md 16KB 瘦身 | ⏸️ **缓** | hook 是事后警告非阻止,prompt 约束仍是第一道防线;大重写需用户拍板(R-HO-4 精神) |
+| 8 | CLAUDE.md 16KB 瘦身 | ✅ **已执行**(用户拍板) | 当日转 fix #38:23KB→7.2KB 结论版,详解外迁 specs/2026-06-10-r-rules-reference.md,规则零删减(commit 8159339) |
 | 9 | daily.sh/launch_worker 去重 | ⏸️ **缓** | daily.sh 有另一工作线未提交改动 + 明日 cron 关键路径,今晚不动启动链路 |
 | 10 | .cache 改名 weights/ | ❌ **拒** | 跨 N 个 skill 的路径大改,回归风险 > 收益;cleanup 白名单已防误删 |
 | 11 | 落盘双写成本 | ⏸️ **缓** | 架构决策,审计价值 vs 维护成本需权衡 |
