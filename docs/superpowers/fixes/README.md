@@ -64,7 +64,7 @@
 
 | # | 级别 | 人话 | Fix 文件 | commit | 影响项目 |
 |---|---|---|---|---|---|
-| 36 | **P0** | 叫快递走侧门，侧门是堵墙：HF 全断网；门卡没批的仓库被放进流水线 | [no-proxy-pollution-gated-403](2026-06-10-no-proxy-pollution-gated-403-fix.md) | `<本次>` | eagle |
+| 36 | **P0** | 叫快递走侧门，侧门是堵墙：HF 全断网；门卡没批的仓库被放进流水线 | [no-proxy-pollution-gated-403](2026-06-10-no-proxy-pollution-gated-403-fix.md) | `f4c4355` | eagle |
 | 35 | P1 | 监工动手干活了，该只看不动 | [monitor-role-discipline](2026-06-08-monitor-role-discipline-fix.md) | `<本次>` | magenta-realtime |
 | 34 | P1 | 每次跑的草稿全堆公共筐，改成按项目分柜 | [run-dir-into-workspace](2026-06-08-run-dir-into-workspace-fix.md) | `864c3f3` | magenta-realtime |
 | 26 | **P0** | 信投进隔壁信箱了，R1/R4/R6/R9 从上线起从未在正确目录生效 | [hook-runid-clobber](2026-06-02-hook-runid-clobber-fix.md) | `3bb1280` | controlfoley |

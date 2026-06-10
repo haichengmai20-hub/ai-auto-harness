@@ -104,7 +104,7 @@
 
 - **状态**: ✅ 成功
 - **验证证据**: 上节 1-5 实测通过;e2e 见 runs/ 当日 manual run
-- **commit hash**: 待 commit 后回填
+- **commit hash**: `f4c4355`
 - **commit message**: `ai-auto: P0 fix — no_proxy 污染致 HF 断网 + gated 403 分类 + 过时绕代理规则删除`
 
 ---
