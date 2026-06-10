@@ -45,14 +45,18 @@ curl -s "https://huggingface.co/api/models/<org>/<name>" | jq -r '.gated // "fal
 - 输出 `"manual"` 或 `"auto"` → 是 gated
 - 输出 `"false"` / null → 公开
 
-对每个 gated repo,试探下载小文件:
+对每个 gated repo,**必须**试探下载小文件(不能只看 `.gated` 字段 + "有 HF_TOKEN" 就放行——auto-gated 也要求该账号先在 HF 网页接受 license):
 
 ```bash
-HF_HOME="$WORKSPACE/.cache/huggingface" huggingface-cli download <repo> README.md --quiet 2>&1
+HF_HOME="$WORKSPACE/.cache/huggingface" hf download <repo> config.json --token "$HF_TOKEN" 2>&1
 ```
 
-- 成功 → 已有 token 且权限 OK
-- 失败含 "401" / "Unauthorized" → `blocked.append("gated_no_token: <repo>")`
+按输出分类(2026-06-10 eagle 实测教训):
+
+- 成功 → 该 token 账号已获批,`gated_check[repo]="ok"`
+- 含 "401" / "Unauthorized" → `blocked.append("gated_no_token: <repo>")`
+- 含 **"403" / "Access denied" / "requires approval" / "Cannot access gated repo"** → `blocked.append("gated_needs_approval: <repo>")` — token 有但账号没接受 license/没过审,**不算 gated_ok**
+- 含 "Network is unreachable" / "Connection" / 超时 → **试探不可信,严禁据此给 gated_ok=true**,`blocked.append("preflight_network_error: <repo>")`,这是基础设施问题先修网络
 
 ## 模型规模 preflight
 
@@ -74,3 +78,12 @@ if estimated_params_b > 30:
   "gated_check": {"<repo>": "ok|needs_token"}
 }
 ```
+
+## ChangeLog
+
+- **2026-06-10** — gated 试探分类扩展(403/Access denied)+ 网络不可达不许放行 + huggingface-cli → hf
+  - 变更类型: 硬约束 + schema 语义
+  - 影响范围: Gated Repo preflight 段
+  - 动机: eagle(nvidia/Eagle2.5-8B)gated-未获批返回 403 "Access denied. This repository requires approval.",旧文只认 401 → intake 给了 `gated_ok: true`,fetch 阶段才撞 403 浪费整个 run;且当时断网导致试探 inconclusive 也被放行;试探命令还在用已废弃的 huggingface-cli(R7)
+  - 证据: [fixes/2026-06-10-no-proxy-pollution-gated-403-fix.md](../../../docs/superpowers/fixes/2026-06-10-no-proxy-pollution-gated-403-fix.md)
+  - 验证: ✅ `hf download nvidia/Eagle2.5-8B config.json --token $HF_TOKEN` 稳定复现 403 文案

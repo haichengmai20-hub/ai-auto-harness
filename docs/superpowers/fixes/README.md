@@ -18,11 +18,11 @@
 
 ## 统计
 
-- **总计**: 35 条
-- **✅ 已闭环**: 23 条（#35 monitor 角色纪律;#34 run 目录归项目;#32 #33 toonflow-app e2e 闭环）
+- **总计**: 36 条
+- **✅ 已闭环**: 24 条（#36 no_proxy 污染断网+gated 403;#35 monitor 角色纪律;#34 run 目录归项目;#32 #33 toonflow-app e2e 闭环）
 - **🟡 部分落地**: 2 条（#30 fetch 完整性校验、#31 R9；均已补 committed 回归测试，待真实 e2e / 上游）
 - **❌ 未闭环**: 10 条
-- **P0**: 3 条
+- **P0**: 4 条
 - **P1**: 23 条
 - **P2**: 7 条
 
@@ -64,6 +64,7 @@
 
 | # | 级别 | 人话 | Fix 文件 | commit | 影响项目 |
 |---|---|---|---|---|---|
+| 36 | **P0** | 叫快递走侧门，侧门是堵墙：HF 全断网；门卡没批的仓库被放进流水线 | [no-proxy-pollution-gated-403](2026-06-10-no-proxy-pollution-gated-403-fix.md) | `<本次>` | eagle |
 | 35 | P1 | 监工动手干活了，该只看不动 | [monitor-role-discipline](2026-06-08-monitor-role-discipline-fix.md) | `<本次>` | magenta-realtime |
 | 34 | P1 | 每次跑的草稿全堆公共筐，改成按项目分柜 | [run-dir-into-workspace](2026-06-08-run-dir-into-workspace-fix.md) | `864c3f3` | magenta-realtime |
 | 26 | **P0** | 信投进隔壁信箱了，R1/R4/R6/R9 从上线起从未在正确目录生效 | [hook-runid-clobber](2026-06-02-hook-runid-clobber-fix.md) | `3bb1280` | controlfoley |

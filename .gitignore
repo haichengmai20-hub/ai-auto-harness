@@ -18,3 +18,4 @@ reports/
 e2e-*/
 **/__pycache__/
 *.pile
+logs/

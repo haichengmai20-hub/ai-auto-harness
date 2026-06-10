@@ -86,7 +86,7 @@
 
 ## 📍 当前状态（活索引 — 每次工作后更新此节）
 
-- **最后更新**：2026-06-05（toonflow-app e2e 全链路验证通过，scan→deploy 首次闭环）
+- **最后更新**：2026-06-10（P0:.env no_proxy 污染致 HF 断网修复 + gated 403 分类,#36;目标 2026-06-11 cron 9:00→10:00 链路无人值守跑通）
 - **版本**：v1.1（Phase 5 进行中）
 - **一句话**：Phase −1~4 平台全部 ✅;Phase 5(runbook+cleanup)实现 + L1 测试 + T5-T7 主流程串联 ✅;**toonflow-app e2e scan→deploy 全链路首次闭环**✅(scan→intake→fetch→install→run→verify 3/3→runbook 297行→cleanup 1.68GB→archived);**#32 scan→deploy / #33 cleanup 已闭环**✅;**#30 fetch 下载完整性校验**🟡(已补 committed 回归测试复现 469-vs-2.2GB 损坏,但真实 GPU 权重下载 e2e 未跑);**#31 R9 Task() 仍被绕过**🟡(根因 S-1 待 CC 平台支持,硬阻断方案已评估拒绝)
 - **真实战绩**：5 个项目跑通（SongGeneration / OmniVoice / Hunyuan3D-2 / ControlFoley / **Toonflow-app**）；Toonflow-app 首次 scan→deploy 全链路 7 阶段跑通（MCP scan_today→pick→intake→fetch→install→run→verify 3/3→runbook→cleanup→archived）
@@ -129,6 +129,7 @@
 
 | 日期 | Fix | 部署项目 | 影响 | commit | 状态 |
 |---|---|---|---|---|---|
+| 2026-06-10 | [no-proxy-pollution-gated-403-fix](../fixes/2026-06-10-no-proxy-pollution-gated-403-fix.md) **P0** | eagle | `.env` no_proxy 含 huggingface.co → fetch 全断网;删 SKILL 过时绕代理规则;gated 403 分类(preflight+fetch) | `<本次>` | ✅ 已闭环 |
 | 2026-06-03 | [fetch-weights-no-download-integrity-check-fix](../fixes/2026-06-03-fetch-weights-no-download-integrity-check-fix.md) | controlfoley | 下载后无完整性校验 + Xet 卡死无 fallback（committed 回归测试复现 469-vs-2.2GB，待真实 GPU e2e） | N/A | 🟡 部分落地 |
 | 2026-06-03 | [r9-task-dispatch-still-bypassed-fix](../fixes/2026-06-03-r9-task-dispatch-still-bypassed-fix.md) | controlfoley + toonflow-app | R9 仍被绕过(5/5 项目,bash=77/task=0),S-1 根因确认 | N/A | 🟡 部分落地 |
 | 2026-06-03 | [scan-to-deploy-never-e2e-verified-fix](../fixes/2026-06-03-scan-to-deploy-never-e2e-verified-fix.md) | toonflow-app | scan→deploy 全链路 e2e 验证通过(MCP scan_today + record_outcome) | N/A | ✅ 已闭环 |

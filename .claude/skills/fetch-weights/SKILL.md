@@ -18,8 +18,8 @@ agent: fetch-agent
 5. **foreground sleep ≤ 60s/次**(R4):长等用 `setsid nohup ... &` 后台 + tail log + `kill -0 $PID` 判活
 6. **state.json 每 phase 起止双写**(R2):本 skill 开头写 `phase=fetching, status=running`,return 前写 `status=done`
 7. **wall-clock 上限 180min**(R3):超过且进度 < 50% → `paused_for_human`;> 50% → `paused_in_progress`,下次 cron 接续
-8. **代理绕过**(新增):公司 HTTP 代理连接池有限,`hf download` 走代理易打爆 503。launch_worker.sh/daily.sh 已 env-level 把 `huggingface.co` 加入 `no_proxy`,但 SubAgent **每次新开 bash** 也必须 re export `no_proxy` 或 `unset HTTPS_PROXY HTTP_PROXY`
-8. **代理环境下载优化(必须)**:本机必须走代理才能访问外网(直连报 Network is unreachable),不能 unset proxy。但 Xet 多连接会打爆代理 → 503。解法:禁 Xet(`HF_HUB_DISABLE_XET=1`) + 降并发(`HF_HUB_DOWNLOAD_CONCURRENCY=2`)。launch_worker.sh/daily.sh 已 env-level 设这两项
+8. **代理环境下载优化(必须)**:本机必须走代理才能访问外网(直连报 Network is unreachable),**严禁 unset proxy、严禁把 `huggingface.co` 等外网域名加进 `no_proxy`**(历史"绕代理防 503"旧规则已被证伪并删除——绕开代理=直连=断网;Fix: 2026-06-10-no-proxy-pollution-gated-403-fix)。代理 503 的正解:禁 Xet(`HF_HUB_DISABLE_XET=1`) + 降并发(`HF_HUB_DOWNLOAD_CONCURRENCY=2`)。launch_worker.sh/daily.sh 已 env-level 设这两项
+9. **gated 403 即停**:下载输出含 `Access denied` / `requires approval` / `Cannot access gated repo` / `401` / `403` → 账号未获该 repo 批准,**不重试、不当网络错误处理**,直接 `blocked.append("gated_needs_approval: <repo>")` → 调 request-human-intervention → state `paused_for_human`。重试不可能让账号获批,只会烧 wall-clock
 
 ## 落盘约定(必读)
 
@@ -228,9 +228,10 @@ ELAPSED_SEC=$(( $(date +%s) - $(date -d "$META_START" +%s) ))
 
 ## 第 6 步:Gated 二次拦截
 
-若运行时遇到 401(intake preflight 漏检了):
+若运行时遇到 **401 / 403 / `Access denied` / `requires approval` / `Cannot access gated repo`**(intake preflight 漏检了——注意 HF 对"gated 但账号未获批"返回的是 403 "Access denied. This repository requires approval.",不是 401):
 - KillBash(shell_id)
-- 调 **request-human-intervention** skill,reason_category=`auth_missing`,what_blocked=`gated repo <repo> 需要 HF_TOKEN + license 同意`
+- **不重试**——重试不可能让账号获批,只会烧 wall-clock
+- 调 **request-human-intervention** skill,reason_category=`auth_missing`,what_blocked=`gated repo <repo> 需要用该 HF_TOKEN 的账号在 HF 网页上接受 license / 申请审批`
 - return `{"blocked": true, "paused_for_human": true}`
 
 ## 第 7 步:全部完成 + 建 symlink 到 README 要求的相对路径
@@ -337,6 +338,8 @@ echo "=== PHASE_END   phase=fetch-weights slug=$SLUG status=done ts=$(date -Isec
 - ❌ **不要让 Xet TLS/403 循环超过 3 次还继续等** — 切 `HF_HUB_DISABLE_XET=1` fallback
 - ❌ **不要在代理环境下开 Xet 多连接跑 `hf download`** — Xet 多连接打爆代理 → 503 Too many open connections；应 `HF_HUB_DISABLE_XET=1` 禁 Xet 走普通 HTTP(2026-06-08-proxy-hf-download-503-fix)
 - ❌ **不要在无直连外网的机器上 unset proxy/no_proxy** — 会断网 → Network is unreachable
+- ❌ **不要把 `huggingface.co` 等外网域名加进 `no_proxy`** — 等于强制直连 = 断网(2026-06-10 实测把 fetch 全挂);`no_proxy` 只放内网 IP / 可直连的国内 API host
+- ❌ **不要把 gated 403 当网络错误重试** — `Access denied...requires approval` 是账号权限问题,重试 0 收益,直接走第 6 步 paused_for_human
 
 ## ChangeLog
 
@@ -364,6 +367,12 @@ echo "=== PHASE_END   phase=fetch-weights slug=$SLUG status=done ts=$(date -Isec
   - 动机: magenta-realtime 实测 5 个 hf download 进程拼出 3 种不同 --local-dir 路径,SKILL.md 规定的 .cache/hf_models/$REPO 没人用;根因是 Task() prompt 未传 DEST,SubAgent 自拼
   - 证据: [fixes/2026-06-08-fetch-dest-path-not-injected-fix.md](../../../docs/superpowers/fixes/2026-06-08-fetch-dest-path-not-injected-fix.md)
   - 验证: ⬜ 待验证(重跑 magenta-realtime fetch 阶段)
+- **2026-06-10** — 删除过时"绕代理"规则 + gated 403 即停
+  - 变更类型: 硬约束(删除矛盾旧规则)+ 反模式 + 流程
+  - 影响范围: 硬规则 8/9 / 第 6 步 Gated 二次拦截 / 反模式段
+  - 动机: 旧规则 8("把 huggingface.co 加 no_proxy / unset 代理防 503")与 2026-06-08 修正版同时存在且编号冲突,用户照旧规则配 `.env` 后 fetch 全断网(本机无直连);另 HF gated-未获批返回 403 "Access denied...requires approval",旧文只认 401,eagle 漏检
+  - 证据: [fixes/2026-06-10-no-proxy-pollution-gated-403-fix.md](../../../docs/superpowers/fixes/2026-06-10-no-proxy-pollution-gated-403-fix.md)
+  - 验证: ✅ cron 等价环境 `hf download gpt2 config.json` 经代理成功;`nvidia/Eagle2.5-8B` 稳定复现 403 文案
 - ❌ 不要 wait 一个 bg shell — poll
 - ❌ 不要不 export `HF_HOME` 等就跑下载 — 会污染 ~/.cache/huggingface
 - ❌ 不要在 cron 快到时间但还在下时 kill 进程 — 让它后台继续
