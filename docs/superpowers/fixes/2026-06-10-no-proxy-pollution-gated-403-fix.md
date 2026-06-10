@@ -97,6 +97,8 @@
 4. 期望输出:commit hash(实测 ✅)
 5. gated 验证:同环境 `hf download nvidia/Eagle2.5-8B config.json` → 期望 `Access denied. This repository requires approval.`(403 而非断网,实测 ✅)
 6. e2e:手动按 cron 等价环境跑 `cron/daily.sh`,期望 eagle 被 fetch-agent 识别 gated → `paused_for_human` + `pending_human/eagle.md`,报告生成
+   - **实测 ✅(2026-06-10 run `cron-2026-06-10-143028`,exit 0)**:eagle 403 → `results/fetch.json` status=paused_for_human/reason=gated_repo_access_denied;主 agent 未卡死,继续从当日 findings 挑了新项目 scail 并经代理实跑下载(~12MB/s,47GB 跨 cron paused_in_progress);报告 `reports/2026-06-10.md` 生成;outcome 回填 scan(eagle paused_for_human + scail in_progress);hook 真实生效(transcript 114 行/bash_count 66/R4.5 告警)
+   - 小偏差:fetch-agent 漏调 request-human-intervention 写 `pending_human/eagle.md`(state/results/报告/outcome 均正确)— 已由 session 补写该文件;若再次出现升级为独立 fix
 
 ---
 
