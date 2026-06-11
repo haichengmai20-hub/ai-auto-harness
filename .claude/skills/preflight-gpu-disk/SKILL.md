@@ -22,11 +22,11 @@ nvidia-smi --query-gpu=index,memory.used,memory.free,memory.total --format=csv,n
 - 否则 → `blocked.append("gpu_insufficient")`
 
 **空闲显存聚合检查 (2026-06-11 P4 fix)**:
-- 单卡空闲检查不够 — 即使 N 张卡各自有足够空闲，也需验证**总计空闲 VRAM ≥ 模型总需求**
-- 计算: `sum_free_MiB = Σ(可用卡的 free_MiB)`, `need_MiB = estimated_weight_size_gb * 1024 + 4096`(4GB safety for activations/KV cache)
-- `sum_free_MiB < need_MiB` → `blocked.append("gpu_vram_insufficient: free=<sum_free/1024>GB, need=<need/1024>GB, recommend=<ceil(need/32768)> cards")`
-- 同时输出推荐 GPU 数: `recommended_gpus = ceil(model_params_b * 2 / 32)` (BF16, 32GB per card, with overhead)
-  - 例: 14B → 14*2/32 ≈ 1, 但加 T5+CLIP+VAE ≈ 42GB → ceil(42/32) = 2 太紧 → 实际需 ceil(42+8/32) = 3~4 卡
+- 单卡空闲检查不够 — 即使若干卡各自"够格",也需验证**总计空闲 VRAM ≥ 模型总需求**
+- 计算: `sum_free_MiB = Σ(可用卡的 free_MiB)`,`need_MiB = estimated_weight_size_gb × 1024 × 1.5`(×1.5 经验系数覆盖激活/KV cache/辅助模型;SCAIL 实测 14B DiT 权重 28GB + T5/CLIP/VAE 实跑 ≈ 42GB)
+- `sum_free_MiB < need_MiB` → `blocked.append("gpu_vram_insufficient: free=<sum_free/1024>GB, need=<need/1024>GB")`
+- 推荐 GPU 数: `recommended_gpus = ceil(need_MiB / (30 × 1024))`(每卡 32GB 留 2GB 余量)。例: need 42GB → ceil(42/30) = 2 卡
+- **聚合判定的前提**:项目支持多卡切分(README/代码有 MP/TP/`device_map="auto"`/`torchrun --nproc` 迹象)。**不支持切分的单体模型,按"最大单卡 free ≥ need"判**,聚合够了也跑不起来
 
 **API skeleton 降级 (2026-06-11 P4 fix)**:
 - 如果 `blocked` 含 `gpu_insufficient` 或 `gpu_vram_insufficient`,**且**项目有可用 API 端点(README 提到 OpenAI API / gradio client / REST endpoint):
@@ -99,3 +99,8 @@ if estimated_params_b > 30:
   - 动机: eagle(nvidia/Eagle2.5-8B)gated-未获批返回 403 "Access denied. This repository requires approval.",旧文只认 401 → intake 给了 `gated_ok: true`,fetch 阶段才撞 403 浪费整个 run;且当时断网导致试探 inconclusive 也被放行;试探命令还在用已废弃的 huggingface-cli(R7)
   - 证据: [fixes/2026-06-10-no-proxy-pollution-gated-403-fix.md](../../../docs/superpowers/fixes/2026-06-10-no-proxy-pollution-gated-403-fix.md)
   - 验证: ✅ `hf download nvidia/Eagle2.5-8B config.json --token $HF_TOKEN` 稳定复现 403 文案
+- **2026-06-11** — 空闲显存聚合检查 + API 降级路径(P4);审查更正公式与多卡前提
+  - 变更类型: 硬约束 + 流程
+  - 影响范围: GPU preflight 段
+  - 动机: SCAIL 实测 — 6 卡被 vLLM 占,intake 只查"单卡 used≥25GB 排除"给了 green light,run 阶段才 OOM,浪费 ~$80/2h;原版 recommended_gpus 公式示例自相矛盾(ceil(50/32)=2 却写 3~4 卡),且聚合判定漏了"模型必须支持多卡切分"前提,审查时一并更正
+  - 证据: specs/2026-06-11-试跑复盘与验证清单.md(P4) + [fixes/2026-06-11-p1-p12-implementation-corrections-fix.md](../../../docs/superpowers/fixes/2026-06-11-p1-p12-implementation-corrections-fix.md)

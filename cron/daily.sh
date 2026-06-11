@@ -143,7 +143,9 @@ cleanup() {
     if [ "$code" -ne 0 ] && [ -z "${AI_HARNESS_IS_RESUME:-}" ]; then
         echo "[$(date -Iseconds)] claude-haha 异常退出 (code=$code)，15 分钟后重试" >> "$LOG_DIR/cleanup.log"
         exec 200>&-  # 释放 flock
-        nohup bash -c "sleep 900 && AI_HARNESS_IS_RESUME=1 cd '$HARNESS_ROOT' && bash cron/daily.sh" \
+        # 注:env 前缀必须挂在 daily.sh 上(原写法挂在 cd 上,变量传不进 daily.sh
+        # → 重试再失败会无限调度重试;fix: 2026-06-11-p1-p12-implementation-corrections)
+        nohup bash -c "sleep 900 && cd '$HARNESS_ROOT' && AI_HARNESS_IS_RESUME=1 bash cron/daily.sh" \
             >> "$HARNESS_ROOT/logs/cron-retry-$(date +%Y%m%d).log" 2>&1 &
     fi
 
@@ -243,19 +245,17 @@ if [ -n "$IN_PROGRESS_SLUGS" ] && [ "$resume_count" -lt "$MAX_RESUMES" ]; then
         >> "$HARNESS_ROOT/logs/cron-resume-$(date +%Y%m%d).log" 2>&1 &
     echo "[$(date -Iseconds)] 续跑已调度 (PID=$!)" >> "$LOG_DIR/cleanup.log"
 elif [ -n "$IN_PROGRESS_SLUGS" ]; then
-    echo "[$(date -Iseconds)] 已续跑 ${MAX_RESUMES} 次仍未完成，标记 paused_for_human" >> "$LOG_DIR/cleanup.log"
-    echo "$IN_PROGRESS_SLUGS" | while read -r slug; do
-        [ -z "$slug" ] && continue
-        sf="$HARNESS_ROOT/workspace/$slug/state.json"
-        if [ -f "$sf" ]; then
-            jq '.status = "paused_for_human" | .pause_reason = "续跑3次仍失败，需人工介入"' "$sf" > "$sf.tmp" && mv "$sf.tmp" "$sf"
-        fi
-    done
+    # 今日续跑配额用完 → 只停止续跑,**不**强标 paused_for_human。
+    # (原实现会把仍在合法跨 cron 下载的 paused_in_progress 项目误标为 paused_for_human,
+    #  而次日 cron 的接续筛选排除 paused_for_human → 大权重项目被永久搁浅。
+    #  paused_in_progress 本来就是"下次 cron 接续"的设计状态,次日 10:00 自然继续;
+    #  真正的失败升级由 R3 超时/3 轮修复上限走 request-human-intervention 正规通道。
+    #  fix: 2026-06-11-p1-p12-implementation-corrections)
+    echo "[$(date -Iseconds)] 今日续跑配额(${MAX_RESUMES})已用完,留给次日 cron 接续: [$(echo $IN_PROGRESS_SLUGS | tr '\n' ' ')]" >> "$LOG_DIR/cleanup.log"
 fi
 
-# 午夜重置续跑计数
-if [ "$(date +%H)" -ge 23 ]; then
-    rm -f "$RESUME_COUNTER"
-fi
+# 清理 3 天前的续跑计数文件(计数器按日期命名,无需午夜重置 —
+# 原"≥23 点删除当日计数"反而会在深夜多放 3 次续跑配额,已移除)
+find "$HARNESS_ROOT/state" -name 'resume-count-*.txt' -mtime +3 -delete 2>/dev/null || true
 
 exit $RET

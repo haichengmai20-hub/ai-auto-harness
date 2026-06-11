@@ -14,7 +14,7 @@
 | 模型规模 | self-host 目标 ≤ 30B 参数;超过走 api-skeleton |
 | torch sm 兼容 | wheel 必须含 sm_12.0(5090) |
 | 并发项目数 | 单次 cron run N=1 |
-| 修复循环上限 | 同阶段 max 3 轮 LLM 决策后 raise pending_human |
+| 修复循环上限 | 同阶段 max 3 轮 LLM 决策后 raise pending_human(依赖缺失类例外 +2 轮,见 R3) |
 
 ## 工作流(主 agent / `/auto-daily`)
 
@@ -37,14 +37,14 @@
 - **R2 state 双写**:每个 phase 开始(`status=running`)和结束(`done|paused_in_progress|paused_for_human|blocked` + `phases_done`)都 jq 原子更新 state.json + `updated_at` — 不更新 = monitor 看不见你
 - **R3 wall-clock**:intake 15min / fetch 180min(进度>50%→`paused_in_progress`,否则 `paused_for_human`)/ install 60min / run 45min×3 轮 / verify 30min;超时走暂停分支,**不再 sleep**。代码兜底:`scripts/enforce-wallclock.sh`。**修复轮次分类 (P11 fix)**:"依赖缺失"类错误(ModuleNotFoundError/AssertionError from import)不计入 3 轮上限,可额外重试 2 次;"框架 bug"类(tensor mismatch/OOM/segfault)正常计入 3 轮
 - **R4 sleep 纪律**:单次 sleep ≤ 60s;**连续 sleep 绝对禁**(上一 turn 是 sleep 这一 turn 就不许);poll 类(tail/ps/du/sleep)每 phase ≤ 8 turn,超了 `paused_in_progress` return。长任务 `setsid nohup ... &` + 记 PID + 下 turn tail 判活。**退出让 cron 接续比空转 turn 划算 1000 倍**
-- **R4.1 poll 动态间隔 (P12 fix)**:后台进程存活时 poll 间隔可递增 30s→60s→120s(最多 3 次),减少空转。PID 死或 sentinel 变 done/failed 立即恢复 30s
-- **R4.2 git checkout 禁令 (P10 fix)**:run-and-repair **严禁** `git checkout`/`git switch` 到其他分支。修复只能在当前分支上做。切分支丢补丁且结构可能不兼容。当前分支跑不通 → `paused_for_human`
+- **R4.6 poll 动态间隔 (P12 fix)**:后台进程存活且健康时,poll 间隔可递增 30s→45s→60s 省 turn(**单次 sleep ≤60s 硬上限不变**,要更长等待用 `sleep 55 && tail -5 $LOG` 把等待+采样合并成一次 poll);PID 死或 sentinel 变 done/failed 立即密集检查。注:R4.1/R4.2 编号属 sleep 上限/连续 sleep(hook 告警文案用此编号,详见 REF),勿混淆
 - **R5 串行带宽**:fetch 完全 done 才进 install;下载与 pip 绝不并行(抢同一根管道)
 - **R6 pip**:禁 `--no-cache-dir`(PIP_CACHE_DIR 已 env 隔离,加了反而重下);禁并行 pip 写同一 venv
 - **R7 HF 下载**:用 `hf` 不用 `huggingface-cli`;**无** `--resume-download`(1.x 已移除,默认续传);代理环境 `HF_HUB_DISABLE_XET=1` + `HF_HUB_DOWNLOAD_CONCURRENCY=2`;**严禁 unset proxy / 把外网域名(huggingface.co 等)加进 no_proxy**(本机无直连=断网,fix #36);起前 `pgrep -f "hf download.*<repo>"` 防并发;`--token "$HF_TOKEN"` 显式传
 - **R8 phase 标记**:SubAgent 进/出各 echo 一行 `=== PHASE_START|PHASE_END phase=<p> slug=<s> ... ===`(格式严格,monitor/hook 靠 grep;全格式 → REF)
 - **R9 主 agent 只 dispatch**:每个 phase 必须 Task() 派 SubAgent;主 agent 的 Bash 只做路由/读写 state/调 validator;严禁亲自 `git clone` / `hf download` / `pip install` / `python ...`;run-and-repair 修 3 轮不好就 pending_human;verify 只判定不修
 - **R10 sentinel**:跨 turn/cron 的后台长任务必写 `workspace/<slug>/.cache/handoff/<phase>-<id>.json`(status/pid/exit_code/started_at/completed_at/log_path,fetch 加 repo/local_dir/bytes);**生产者**退出时原子写终态;poll 发现 PID 死(含 `/proc/<pid>/stat` 为 `Z` 僵尸 — 容器 PID 1 不收尸)**立即补写终态**;看到 done 仍要 dispatch SubAgent 推进,不许主 agent 自己接着干。平台兜底:`scripts/reconcile-sentinels.sh`
+- **R11 run-and-repair 分支纪律 (P10 fix)**:**严禁** `git checkout`/`git switch` 切到其他分支(丢已打的修复补丁 + 新分支结构可能完全不兼容,SCAIL 实测);修复只在当前分支做;当前分支跑不通 → `paused_for_human`。hook 对切分支命令注入警告
 
 **verify 独立判定**:verify SubAgent 禁读 state.json 的 `run_result`(不被修复历史污染)。
 
@@ -70,3 +70,10 @@
   - 动机: 23KB 每 session 注入,规则被 3 倍体积的解释稀释,实测遵守率没换来(R9 5/5 违反);结论与教学材料分层
   - 证据: [fixes/2026-06-10-claude-md-slimming-fix.md](../docs/superpowers/fixes/2026-06-10-claude-md-slimming-fix.md)(含瘦身前后规则覆盖自查表)
   - 验证: ✅ 规则零删减自查 + 无程序化消费者(grep hooks/cron/scripts 仅 prose 引用)
+
+- **2026-06-11** — SCAIL 试跑三规则(P10/P11/P12)+ 审查更正编号与上限冲突
+  - 变更类型: 规则(R3 轮次分类 / R4.6 poll 动态间隔 / R11 分支纪律)
+  - 影响范围: R3 / R4.6(新) / R11(新) / 资源约束表修复轮上限行;同步下沉 run-and-repair/SKILL.md(S-1:SubAgent 收不到本文件);hook 加 R11 检测
+  - 动机: SCAIL 试跑(切 wan 分支丢补丁 / flash_attn 缺失烧掉末轮 / resharding 被 poll 预算截断);初版把新规则编号写成 R4.1/R4.2 与既有 sleep 子规则(hook 告警文案同名)冲突、120s 间隔违反 sleep≤60s 上限,审查时改 R4.6/R11 并调和
+  - 证据: specs/2026-06-11-试跑复盘与验证清单.md + [fixes/2026-06-11-p1-p12-implementation-corrections-fix.md](../docs/superpowers/fixes/2026-06-11-p1-p12-implementation-corrections-fix.md)
+  - 验证: ✅ hook R11 单测 4/4;reconcile-state fixture 3/3

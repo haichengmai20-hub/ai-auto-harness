@@ -129,6 +129,14 @@ phase 开始时记 `started_at`,每次 poll 前 `$(date +%s) - $(date -d "$start
 
 **核心原则**:LLM turn 不是免费的。每个 turn = 一次完整 LLM 推理 + full-context token 重发(sleep > 5min 必 cache miss)。一个空转 turn 比 cron 下次接续(0 token)贵 1000 倍。**退出比 sleep 划算**。
 
+### R4.6 poll 动态间隔(2026-06-11, P12)
+
+后台进程存活且健康(PID 活、GPU 利用正常、log 有新输出)时,poll 间隔可递增 30s→45s→60s 减少空转 turn:
+- **单次 sleep ≤ 60s 硬上限(R4.1)不变** — 要更长等待用 `sleep 55 && tail -5 "$LOG"` 把等待+采样合并为一次 poll(一条 Bash 计 1 次 poll,且不触发 R4.2 连续 sleep)
+- PID 死 / sentinel 变 done|failed / log 出现 error → 立即恢复密集检查
+- 已知长耗时步骤(checkpoint resharding / 编译,5-10min)预计超出 8 次 poll 预算 → 直接 `paused_in_progress` return;daily.sh 的 30 分钟续跑机制(2026-06-11)会接续,上下文重建成本已可接受
+- 动机:SCAIL resharding 需 5-10min,固定 30s 间隔 4 分钟就烧完 poll 预算被迫拆 run
+
 ## R5. 串行带宽 — fetch 与 install 不能并行
 
 带宽就是瓶颈.正确顺序:
@@ -195,6 +203,15 @@ fetch 场景额外字段:`repo`, `local_dir`, `bytes`。
 - SessionEnd hook 只写 handoff audit,不改 workspace state,不 kill 别人进程
 - 看到 sentinel done 后,主 agent 仍必须 dispatch 对应 SubAgent 读日志/results 并推进 state,不要自己 Bash 接着做下一阶段
 - 平台对账兜底:`scripts/reconcile-sentinels.sh`(launcher 启动前置调用)
+
+## R11. run-and-repair 分支纪律(2026-06-11, P10)
+
+**严禁** `git checkout` / `git switch` 切到其他分支当"修复手段":
+- 切分支会丢掉前几轮已打的修复补丁(SCAIL 实测:切 wan 分支后 attempt 1-2 的 device placement fix 全作废 + git stash 冲突)
+- 新分支代码结构可能与当前完全不同,引入全新的未知问题
+- 修复只在当前分支上做;当前分支确实跑不通 → `paused_for_human`,把"建议试 X 分支"写进 `next_steps_suggested` 让人决策
+- `git checkout -- <file>`(恢复单文件)是合法修复手段,不在禁令内
+- enforcement:PostToolUse hook 对 `git checkout|switch <branch>`(不含 ` -- `)注入 R11 警告
 
 ---
 

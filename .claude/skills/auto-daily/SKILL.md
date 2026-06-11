@@ -300,3 +300,8 @@ force_cleanup_incomplete: false
   - 影响范围: 任务 1 接续与积压检查
   - 动机: eagle 实测 phase=fetch-weights + status=paused_for_human,旧筛选只看 phase 会误接续再撞一次 gated 403;record_outcome MCP 失败时结果静默丢失,scan 重复推荐
   - 证据: [fixes/2026-06-10-external-review-sentinel-wallclock-runs-fix.md](../../../docs/superpowers/fixes/2026-06-10-external-review-sentinel-wallclock-runs-fix.md)
+- **2026-06-11** — 资源变化重试规则(P8)
+  - 变更类型: 流程
+  - 影响范围: 任务 1
+  - 动机: SCAIL 实测 — GPU 释放后重置 state 重试,agent 看到旧 record_outcome(failed) 仍跳过;previous_failure=*_RESOLVED 标记 = 人已确认失败原因消除,必须重试
+  - 证据: specs/2026-06-11-试跑复盘与验证清单.md(P8)

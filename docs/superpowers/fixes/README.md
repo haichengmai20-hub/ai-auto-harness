@@ -18,12 +18,12 @@
 
 ## 统计
 
-- **总计**: 38 条
-- **✅ 已闭环**: 36 条（#38 CLAUDE.md 瘦身 23KB→7KB 规则零删减;#37 sentinel 僵尸对账+R3 兜底+runs 清理(外部 review 采纳 9/20);2026-06-10 清积压:#15-#24 全部闭环;#36 no_proxy 污染断网+gated 403）
+- **总计**: 39 条
+- **✅ 已闭环**: 37 条（#39 P1-P12 实现审查更正;#38 CLAUDE.md 瘦身 23KB→7KB 规则零删减;#37 sentinel 僵尸对账+R3 兜底+runs 清理(外部 review 采纳 9/20);2026-06-10 清积压:#15-#24 全部闭环;#36 no_proxy 污染断网+gated 403）
 - **🟡 部分落地**: 2 条（#30 fetch 完整性校验、#31 R9；均已补 committed 回归测试，待真实 e2e / 上游）
 - **❌ 未闭环**: 0 条
 - **P0**: 5 条
-- **P1**: 24 条
+- **P1**: 25 条
 - **P2**: 8 条
 
 > 注：上方 P0/P1/P2 为各 fix 文档 `级别` 字段的本表历史归类，与状态轴(已闭环/部分落地/未闭环)正交；优先级以各 fix 文档头部 `级别` 字段为准。
@@ -45,12 +45,13 @@
 
 ---
 
-## ✅ 已闭环（36 条 — 按时间倒序）
+## ✅ 已闭环（37 条 — 按时间倒序）
 
 > 最近修的排最前，方便回溯。
 
 | # | 级别 | 人话 | Fix 文件 | commit | 影响项目 |
 |---|---|---|---|---|---|
+| 39 | P1 | 螺丝拧错孔×4 + 新规矩贴错墙(SubAgent 看不到) → 审查更正 SCAIL 批次 | [p1-p12-implementation-corrections](2026-06-11-p1-p12-implementation-corrections-fix.md) | `<本次>` | scail |
 | 38 | P2 | 23 页员工手册没人看完 → 压成 1 页墙贴,细则挂参考手册(规则零删减) | [claude-md-slimming](2026-06-10-claude-md-slimming-fix.md) | `8159339` | 全平台 |
 | 37 | **P0** | 工人死了 5 小时,白板还写"工作中" → 启动前对账改写真相 + R3 代码兜底 + runs 清理 | [external-review-sentinel-wallclock-runs](2026-06-10-external-review-sentinel-wallclock-runs-fix.md) | `2dca1df` | scail + magenta-realtime |
 | 36 | **P0** | 叫快递走侧门，侧门是堵墙：HF 全断网；门卡没批的仓库被放进流水线 | [no-proxy-pollution-gated-403](2026-06-10-no-proxy-pollution-gated-403-fix.md) | `f4c4355` | eagle |

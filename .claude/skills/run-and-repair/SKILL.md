@@ -155,6 +155,8 @@ PID=$(cat "$WORKSPACE/.cache/run.pid" 2>/dev/null)
 
 → 不修不动,继续 poll(BashOutput / tail)
 
+**poll 动态间隔(2026-06-11, R4.6/P12)**:进程健康(上面 4 项都正常)时,poll 间隔可递增 30s→45s→60s 省 turn;要更长等待用 `sleep 55 && tail -5 "$LOG"` 把等待+采样合并为**一次** poll(单次 sleep ≤60s 硬上限不变);出现异常迹象立即恢复密集检查。已知长耗时步骤(checkpoint resharding/编译,5-10min)预计超 8 次 poll 预算 → 直接 `paused_in_progress` return,daily.sh 的 30 分钟续跑机制会接续
+
 ### 卡死判定
 
 - run.pid alive 但 30min:
@@ -190,7 +192,13 @@ echo "$(date -Iseconds) round=$ROUND error=CUDA_OOM fix=batch_size_4_to_1 file=c
 
 修完 → 回到第 1 步重跑.
 
-**3 轮上限**:
+**3 轮上限(2026-06-11 轮次分类,P11)**:
+
+- **依赖缺失类**(`ModuleNotFoundError` / import 阶段的 `AssertionError` / `ImportError`)→ **不计入** 3 轮上限,可额外重试 2 次 — 一条 `pip install` 能解决的问题不该烧掉宝贵的修复轮(SCAIL 实测:flash_attn 缺失耗掉最后一轮)
+- **框架 bug 类**(tensor mismatch / CUDA OOM / segfault / RuntimeError)→ 正常计入 3 轮
+- 每轮在 decisions.md 标注分类:`(round 2/3, 类型=框架bug)` 或 `(依赖补装 1/2, 不计轮)`
+
+**🔴 分支纪律(2026-06-11, R11/P10)**:**严禁** `git checkout` / `git switch` 切到其他分支 — 会丢掉前几轮已打的修复补丁,且新分支代码结构可能完全不同(SCAIL 实测:切 wan 分支后 attempt 1-2 的 device fix 全作废 + git stash 冲突)。修复只在当前分支上做;当前分支确实跑不通 → `paused_for_human`,把"建议试 X 分支"写进 next_steps_suggested 让人决策。(`git checkout -- <file>` 恢复单文件不在禁令内)
 
 ```python
 if round_count == 3 and not passed:
@@ -313,8 +321,15 @@ echo "=== PHASE_END   phase=run-and-repair slug=$SLUG status=done ts=$(date -Ise
 - ❌ 重写整个文件而不是小改(易引入新 bug)
 - ❌ 不看 nvidia-smi 就判定"模型在跑"
 - ❌ 有真实代码/配置适配却把 `repair_count` 写 0、`fixes_applied` 留空 — 适配动作(改 import/config/patch 代码)都必须入账
+- ❌ **`git checkout`/`git switch` 切分支当"修复手段"** — 丢补丁 + 结构不兼容(R11,SCAIL 实测);切分支的念头 = 该 paused_for_human 让人决策了
 
 ## ChangeLog
+
+- **2026-06-11** — P10/P11/P12 规则下沉本 SKILL(SubAgent 收不到 CLAUDE.md,S-1)
+  - 变更类型: 硬约束 + 流程 + 反模式
+  - 影响范围: 第 2 步 poll 动态间隔 / 第 5 步轮次分类 + 分支纪律 / 反模式段
+  - 动机: SCAIL 试跑(2026-06-11)三个教训 — 切 wan 分支丢补丁、flash_attn 缺失烧掉最后一轮、resharding 被 poll 预算截断;原修复只写在 CLAUDE.md,但 run-and-repair SubAgent 看不到 CLAUDE.md(#31 S-1),规则必须在 SKILL 内才到达执行者
+  - 证据: [fixes/2026-06-11-p1-p12-implementation-corrections-fix.md](../../../docs/superpowers/fixes/2026-06-11-p1-p12-implementation-corrections-fix.md) + specs/2026-06-11-试跑复盘与验证清单.md
 
 - **2026-06-10** — repair_log 统计口径扩大(适配动作都算修复)
   - 变更类型: schema 语义 + 反模式

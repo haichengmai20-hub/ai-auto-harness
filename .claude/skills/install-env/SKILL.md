@@ -327,3 +327,8 @@ echo "=== PHASE_END   phase=install-env slug=$SLUG status=done ts=$(date -Isecon
   - 动机: 长任务退出后需要由 SessionStart/SessionEnd hook 发现和交接,不能只靠即将离开的观察者 poll
   - 证据: [fixes/2026-05-29-polling-handoff-mechanism-fix.md](../../../docs/superpowers/fixes/2026-05-29-polling-handoff-mechanism-fix.md)
   - 验证: ⬜ 待验证(handoff sentinel fixture)
+- **2026-06-11** — import 深度预检(P9)
+  - 变更类型: 流程
+  - 影响范围: 第 6 步后新增预检块
+  - 动机: SCAIL 实测 — wan 分支代码 import flash_attn 但 requirements.txt 没列,run 阶段才炸,烧掉最后一轮修复;lazy import 的推理依赖必须 install 阶段扫出来
+  - 证据: specs/2026-06-11-试跑复盘与验证清单.md(P9)

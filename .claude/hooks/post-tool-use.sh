@@ -160,6 +160,16 @@ if "--no-cache-dir" in cmd:
         "PIP_CACHE_DIR=隔离目录,加 --no-cache-dir 反而每次重下 wheel + 抢带宽。去掉这个 flag。"
     )
 
+# === R11: run-and-repair 切分支(P10, 2026-06-11) ===
+# git checkout/switch <branch> 会丢已打的修复补丁 + 新分支结构不兼容(SCAIL 实测)。
+# `git checkout -- <file>`(恢复单文件)是合法修复手段,含 " -- " 不告警。
+if re.search(r'\bgit\s+(checkout|switch)\b', cmd) and " -- " not in cmd:
+    warnings.append(
+        "🔴 R11 VIOLATION: 严禁 git checkout/switch 切分支当修复手段 — 会丢掉本轮之前的修复补丁,"
+        "且新分支代码结构可能完全不同(SCAIL 切 wan 分支实测翻车)。修复只在当前分支做;"
+        "确实跑不通 → paused_for_human,把'建议试 X 分支'写进 next_steps_suggested。"
+    )
+
 # === R9: 主 agent 干 SubAgent 活 ===
 if bash_count > 20 and task_called == 0:
     warnings.append(
