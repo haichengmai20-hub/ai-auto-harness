@@ -210,6 +210,24 @@ python -c "<from entry_script 推断的顶层 import,比如 import flux 或 from
 
 失败 → 看 stderr 缺什么 module → pip install 补 → 重试
 
+**import 深度预检 (P9 fix, 2026-06-11)**:仅验证顶层 import 不够，很多依赖（如 flash_attn、xformers、deepspeed）在推理时才被 lazy import。必须在 install-env 阶段主动扫描代码中 `import` 语句，对常见推理关键依赖做预检：
+
+```bash
+# 扫描 repo 中 import 的关键推理依赖（不在 requirements.txt 里也可能被代码引用）
+COMMON_INFERENCE_DEPS="flash_attn xformers deepspeed accelerate diffusers transformers"
+for dep in $COMMON_INFERENCE_DEPS; do
+    if grep -rq "import $dep\|from $dep" "$WORKSPACE/repo/" --include="*.py" 2>/dev/null; then
+        echo "[P9 precheck] 代码引用了 $dep，验证 import..." >> "$LOG"
+        if ! python -c "import $dep" 2>/dev/null; then
+            echo "[P9 precheck] $dep 缺失，尝试安装" >> "$LOG"
+            pip install "$dep" 2>&1 | tee -a "$LOG" || echo "[P9 precheck] $dep 安装失败，记录到 warnings" >> "$LOG"
+        fi
+    fi
+done
+```
+
+如果安装失败（如 flash-attn 需要编译），**不阻塞 install-env**，但在 `install.json.warnings` 加 `"dep_install_failed: <dep>"`，让 run-and-repair 知道这个依赖可能缺失。
+
 ### 第 7 步:写经验(lesson 写入机制)
 
 修复成功后,**判断 3 问**(同 run-and-repair):

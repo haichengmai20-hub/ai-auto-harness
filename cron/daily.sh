@@ -88,6 +88,7 @@ export HF_HUB_DOWNLOAD_CONCURRENCY="${HF_HUB_DOWNLOAD_CONCURRENCY:-2}"
 # 顺序重要:先把死掉的 "running" sentinel 与 stale "running" state 改写为真相,
 # 否则本次 worker 的接续判断会基于谎言。三个脚本都保守:不 kill、不碰用户自管目录。
 bash "$HARNESS_ROOT/scripts/reconcile-sentinels.sh" "$HARNESS_ROOT" >> "$LOG_DIR/cleanup.log" 2>&1 || true
+bash "$HARNESS_ROOT/scripts/reconcile-state.sh" "$HARNESS_ROOT" >> "$LOG_DIR/cleanup.log" 2>&1 || true
 bash "$HARNESS_ROOT/scripts/enforce-wallclock.sh" "$HARNESS_ROOT" >> "$LOG_DIR/cleanup.log" 2>&1 || true
 bash "$HARNESS_ROOT/scripts/clean-old-runs.sh" --delete "$HARNESS_ROOT" >> "$LOG_DIR/cleanup.log" 2>&1 || true
 
@@ -137,6 +138,15 @@ cleanup() {
         kill -TERM "$HAHA_PID" 2>/dev/null || true
     fi
     echo "exit=$code" > "$LOG_DIR/cron.status"
+
+    # P6 fix: 异常退出自动重试（claude-haha 非 0 退出）
+    if [ "$code" -ne 0 ] && [ -z "${AI_HARNESS_IS_RESUME:-}" ]; then
+        echo "[$(date -Iseconds)] claude-haha 异常退出 (code=$code)，15 分钟后重试" >> "$LOG_DIR/cleanup.log"
+        exec 200>&-  # 释放 flock
+        nohup bash -c "sleep 900 && AI_HARNESS_IS_RESUME=1 cd '$HARNESS_ROOT' && bash cron/daily.sh" \
+            >> "$HARNESS_ROOT/logs/cron-retry-$(date +%Y%m%d).log" 2>&1 &
+    fi
+
     exit $code
 }
 trap cleanup EXIT INT TERM
@@ -204,5 +214,48 @@ for line in ndjson_path.read_text().splitlines() if ndjson_path.exists() else []
 out_path.write_text(json.dumps(events, ensure_ascii=False, indent=2))
 print(f'trajectory.json: {len(events)} events')
 " 2>>"$LOG_DIR/harness.stderr.log" || true
+
+# ============ 续跑判断 (P0: 2026-06-11-cron-resume-and-optimization) ============
+# claude-haha 退出后，检查 workspace 是否有未完成项目。
+# 如果有，sleep 30 分钟后重新启动 daily.sh（最多续跑 3 次/天）。
+# 用 sleep+子进程替代 at（本机无 at 命令）。
+RESUME_COUNTER="$HARNESS_ROOT/state/resume-count-$(date +%Y-%m-%d).txt"
+MAX_RESUMES=3
+RESUME_DELAY_MIN=30
+
+resume_count=0
+if [ -f "$RESUME_COUNTER" ]; then
+    resume_count=$(cat "$RESUME_COUNTER" 2>/dev/null || echo 0)
+fi
+
+# 检查是否有 in_progress / paused_in_progress 项目（不含 paused_for_human）
+IN_PROGRESS_SLUGS=$(find "$HARNESS_ROOT/workspace" -maxdepth 2 -name state.json \
+    -exec jq -r 'select(.status == "in_progress" or .status == "running" or .status == "paused_in_progress") | .slug' {} \; 2>/dev/null | head -5)
+
+if [ -n "$IN_PROGRESS_SLUGS" ] && [ "$resume_count" -lt "$MAX_RESUMES" ]; then
+    resume_count=$((resume_count + 1))
+    echo "$resume_count" > "$RESUME_COUNTER"
+    echo "[$(date -Iseconds)] 续跑 ${resume_count}/${MAX_RESUMES}: 未完成项目 [$(echo $IN_PROGRESS_SLUGS | tr '\n' ' ')]，${RESUME_DELAY_MIN} 分钟后重跑" >> "$LOG_DIR/cleanup.log"
+    # 释放 flock 锁，让续跑能获取
+    exec 200>&-
+    # 后台 sleep + 重启 daily.sh（nohup 确保不受当前 shell 退出影响）
+    nohup bash -c "sleep $((RESUME_DELAY_MIN * 60)) && cd '$HARNESS_ROOT' && bash cron/daily.sh" \
+        >> "$HARNESS_ROOT/logs/cron-resume-$(date +%Y%m%d).log" 2>&1 &
+    echo "[$(date -Iseconds)] 续跑已调度 (PID=$!)" >> "$LOG_DIR/cleanup.log"
+elif [ -n "$IN_PROGRESS_SLUGS" ]; then
+    echo "[$(date -Iseconds)] 已续跑 ${MAX_RESUMES} 次仍未完成，标记 paused_for_human" >> "$LOG_DIR/cleanup.log"
+    echo "$IN_PROGRESS_SLUGS" | while read -r slug; do
+        [ -z "$slug" ] && continue
+        sf="$HARNESS_ROOT/workspace/$slug/state.json"
+        if [ -f "$sf" ]; then
+            jq '.status = "paused_for_human" | .pause_reason = "续跑3次仍失败，需人工介入"' "$sf" > "$sf.tmp" && mv "$sf.tmp" "$sf"
+        fi
+    done
+fi
+
+# 午夜重置续跑计数
+if [ "$(date +%H)" -ge 23 ]; then
+    rm -f "$RESUME_COUNTER"
+fi
 
 exit $RET

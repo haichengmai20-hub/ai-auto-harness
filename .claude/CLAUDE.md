@@ -35,8 +35,10 @@
 
 - **R1 隔离**:只动自己 `$WORKSPACE`;严禁读/写/du/ls/tail 别人 workspace;严禁 kill 任何不在 `$WORKSPACE/.cache/*.pid` 里的 PID(起后台进程后立刻 `echo $! > $WORKSPACE/.cache/<task>.pid`)
 - **R2 state 双写**:每个 phase 开始(`status=running`)和结束(`done|paused_in_progress|paused_for_human|blocked` + `phases_done`)都 jq 原子更新 state.json + `updated_at` — 不更新 = monitor 看不见你
-- **R3 wall-clock**:intake 15min / fetch 180min(进度>50%→`paused_in_progress`,否则 `paused_for_human`)/ install 60min / run 45min×3 轮 / verify 30min;超时走暂停分支,**不再 sleep**。代码兜底:`scripts/enforce-wallclock.sh`
+- **R3 wall-clock**:intake 15min / fetch 180min(进度>50%→`paused_in_progress`,否则 `paused_for_human`)/ install 60min / run 45min×3 轮 / verify 30min;超时走暂停分支,**不再 sleep**。代码兜底:`scripts/enforce-wallclock.sh`。**修复轮次分类 (P11 fix)**:"依赖缺失"类错误(ModuleNotFoundError/AssertionError from import)不计入 3 轮上限,可额外重试 2 次;"框架 bug"类(tensor mismatch/OOM/segfault)正常计入 3 轮
 - **R4 sleep 纪律**:单次 sleep ≤ 60s;**连续 sleep 绝对禁**(上一 turn 是 sleep 这一 turn 就不许);poll 类(tail/ps/du/sleep)每 phase ≤ 8 turn,超了 `paused_in_progress` return。长任务 `setsid nohup ... &` + 记 PID + 下 turn tail 判活。**退出让 cron 接续比空转 turn 划算 1000 倍**
+- **R4.1 poll 动态间隔 (P12 fix)**:后台进程存活时 poll 间隔可递增 30s→60s→120s(最多 3 次),减少空转。PID 死或 sentinel 变 done/failed 立即恢复 30s
+- **R4.2 git checkout 禁令 (P10 fix)**:run-and-repair **严禁** `git checkout`/`git switch` 到其他分支。修复只能在当前分支上做。切分支丢补丁且结构可能不兼容。当前分支跑不通 → `paused_for_human`
 - **R5 串行带宽**:fetch 完全 done 才进 install;下载与 pip 绝不并行(抢同一根管道)
 - **R6 pip**:禁 `--no-cache-dir`(PIP_CACHE_DIR 已 env 隔离,加了反而重下);禁并行 pip 写同一 venv
 - **R7 HF 下载**:用 `hf` 不用 `huggingface-cli`;**无** `--resume-download`(1.x 已移除,默认续传);代理环境 `HF_HUB_DISABLE_XET=1` + `HF_HUB_DOWNLOAD_CONCURRENCY=2`;**严禁 unset proxy / 把外网域名(huggingface.co 等)加进 no_proxy**(本机无直连=断网,fix #36);起前 `pgrep -f "hf download.*<repo>"` 防并发;`--token "$HF_TOKEN"` 显式传

@@ -65,6 +65,8 @@ find workspace -maxdepth 2 -name state.json -exec jq -c '{slug, phase, phases_do
 
 筛选 `state.phase ∉ {done, paused_for_human}` **且 `state.status != "paused_for_human"`** 的项目(in_progress)。(status 才是暂停轴 — eagle 实测 phase=fetch-weights + status=paused_for_human,只看 phase 会误接续)
 
+**资源变化重试 (P8 fix, 2026-06-11)**:如果 state.json 含 `previous_failure` 且值为 `*_RESOLVED`(如 `gpu_memory_insufficient_RESOLVED`),**必须重试**而非跳过 — 资源条件已变化(如 GPU 释放),上次失败原因已消除。`resume_reason` 字段提供重试上下文给 SubAgent。
+
 也扫 `pending_human/*.md`(不重跑,但报告里要标)。
 
 **outcome 补回填(2026-06-10 外部 review #20 采纳)**:若 `state/outcomes-pending.jsonl` 存在且非空 — 这是上次 run record_outcome MCP 调用失败的本地暂存 — 逐行重试 `mcp__ai_daily_scan__record_outcome(...)`,成功的行从文件移除(全部成功则删文件)。不补回填,scan 会重复推荐已处理过的项目。

@@ -21,6 +21,18 @@ nvidia-smi --query-gpu=index,memory.used,memory.free,memory.total --format=csv,n
 - 选中卡 `free ≥ 项目预估需求(MiB)+ 2048`(2GB safety) → ok
 - 否则 → `blocked.append("gpu_insufficient")`
 
+**空闲显存聚合检查 (2026-06-11 P4 fix)**:
+- 单卡空闲检查不够 — 即使 N 张卡各自有足够空闲，也需验证**总计空闲 VRAM ≥ 模型总需求**
+- 计算: `sum_free_MiB = Σ(可用卡的 free_MiB)`, `need_MiB = estimated_weight_size_gb * 1024 + 4096`(4GB safety for activations/KV cache)
+- `sum_free_MiB < need_MiB` → `blocked.append("gpu_vram_insufficient: free=<sum_free/1024>GB, need=<need/1024>GB, recommend=<ceil(need/32768)> cards")`
+- 同时输出推荐 GPU 数: `recommended_gpus = ceil(model_params_b * 2 / 32)` (BF16, 32GB per card, with overhead)
+  - 例: 14B → 14*2/32 ≈ 1, 但加 T5+CLIP+VAE ≈ 42GB → ceil(42/32) = 2 太紧 → 实际需 ceil(42+8/32) = 3~4 卡
+
+**API skeleton 降级 (2026-06-11 P4 fix)**:
+- 如果 `blocked` 含 `gpu_insufficient` 或 `gpu_vram_insufficient`,**且**项目有可用 API 端点(README 提到 OpenAI API / gradio client / REST endpoint):
+  - 不直接 blocked,而是在 `warnings` 加 `"api_route_available: 可走 API 调用绕过 GPU 限制"`
+  - `gpu_picks = []`, `entry_script = "api-skeleton"` — 让后续阶段走轻量 API 调用路径
+
 ## 磁盘 preflight
 
 ```bash
