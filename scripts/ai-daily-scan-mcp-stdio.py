@@ -26,15 +26,26 @@ PROTOCOL_VERSION = "2025-11-25"
 
 TOOLS: dict[str, dict[str, Any]] = {
     "scan_today": {
-        "description": "Check or trigger today's ai-daily-scan and return findings metadata.",
+        "description": "Check or trigger today's ai-daily-scan. async_mode=true (default) starts scan in background and returns immediately; use scan_status() to poll progress.",
         "inputSchema": {
             "type": "object",
-            "properties": {"force": {"type": "boolean", "default": False}},
+            "properties": {
+                "force": {"type": "boolean", "default": False},
+                "async_mode": {"type": "boolean", "default": True},
+            },
+            "additionalProperties": False,
+        },
+    },
+    "scan_status": {
+        "description": "Query the status of a background scan. Returns running state, stage progress (stage name, description, progress_pct, detail), and elapsed time estimate.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
             "additionalProperties": False,
         },
     },
     "get_recent_findings": {
-        "description": "Read recent ai-daily-scan findings.",
+        "description": "Read recent ai-daily-scan findings. The 'days' parameter is currently unimplemented — always returns the latest batch.",
         "inputSchema": {
             "type": "object",
             "properties": {"days": {"type": "integer", "default": 7}},
@@ -48,7 +59,7 @@ TOOLS: dict[str, dict[str, Any]] = {
             "properties": {
                 "slug": {"type": "string"},
                 "status": {"type": "string"},
-                "run_id": {"type": "string"},
+                "run_id": {"type": "string", "default": ""},
                 "error_class": {"type": ["string", "null"]},
                 "phase_failed_at": {"type": ["string", "null"]},
                 "notes": {"type": ["string", "null"]},
@@ -71,6 +82,7 @@ TOOLS: dict[str, dict[str, Any]] = {
 
 HANDLERS: dict[str, Callable[..., Any]] = {
     "scan_today": daily_scan.scan_today,
+    "scan_status": daily_scan.scan_status,
     "get_recent_findings": daily_scan.get_recent_findings,
     "record_outcome": daily_scan.record_outcome,
     "analyze_project": daily_scan.analyze_project,

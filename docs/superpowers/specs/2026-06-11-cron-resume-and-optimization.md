@@ -351,6 +351,57 @@ fi
 
 ---
 
+## 6. 第二轮实战复盘：SCAIL 续跑（14:28─15:55）
+
+GPU 释放后重置 state.json 续跑，暴露了更多框架级问题。
+
+### 6.1 时间线
+
+```
+14:28  cron 启动（第1次续跑）
+14:28─14:32  [4min]  agent 读 SKILL.md，发现 scail in_progress，判断接续
+14:32─14:55  [23min] attempt 1: SAT MP=4, device mismatch (T5/CLIP 在 cuda:0)
+14:55─15:08  [13min] attempt 2: SAT MP=4 + device fix, tensor size mismatch (5120≠1280)
+15:08─15:21  [13min] cron 退出（poll limit），paused_in_progress
+15:21─15:23  [2min]   cron 续跑（第2次）
+15:23─15:32  [9min]   attempt 3: 切 wan 分支, flash_attn 缺失
+15:32─15:47  [15min]  agent 尝试修复 flash_attn，3 轮用完 → paused_for_human
+─────────────────
+总计 87 分钟，$25.67
+```
+
+### 6.2 新发现的问题
+
+| # | 问题 | 根因 | 框架级改善方向 |
+|---|------|------|---------------|
+| P8 | **接续时 agent 看到 failed outcome 就跳过** | auto-daily SKILL.md 无"资源变化重试"逻辑 | state.json 增加 `resume_reason` + `previous_failure=RESOLVED`，agent 已自然读取但需要写进规则 |
+| P9 | **install-env 不装 flash-attn** | requirements.txt 没列，install-env 只装列出的包 | install-env 应该做 import 预检：跑 `python -c "import flash_attn"` 失败则尝试安装 |
+| P10 | **run-and-repair 不应切换 git branch** | agent 在 attempt 3 切了 wan 分支，丢掉了之前的修改 | R 规则应限制：run-and-repair 不得 `git checkout` 其他分支，只能在当前分支上修复 |
+| P11 | **3 轮修复上限太死** | flash-attn 缺失只需 `pip install`，但第 3 轮已耗尽 | 修复上限应区分"可修复的依赖缺失"和"框架级 bug"。前者不计入上限 |
+| P12 | **R4 poll limit 导致长任务被截断** | checkpoint resharding 需要 5-10 分钟，8 轮 poll 不够 | 后台进程 + sentinel 模式已实现（PID + log_path），但 poll 间隔应该动态调整 |
+
+### 6.3 SCAIL 失败根因总结
+
+| Attempt | 分支 | GPU | 错误 | 分类 |
+|---------|------|-----|------|------|
+| 0 (归档) | main | 1-2 | OOM (42GB > 32GB 单卡) | ✅ 资源不足，非代码bug |
+| 1 | main | 4 MP=4 | device mismatch (T5/CLIP → cuda:0) | ⚠️ 代码bug，可修 |
+| 2 | main | 4 MP=4 | tensor size 5120≠1280 (resharding) | ❌ SAT 框架深层 bug |
+| 3 | wan | 1 | flash_attn AssertionError | ⚠️ 依赖缺失，可修 |
+
+**结论**: SCAIL 在 wan 分支 + flash_attn 安装后大概率能跑通。这是 install-env 阶段遗漏依赖导致的失败，不是模型本身的问题。
+
+### 6.4 关键教训：Monitor 的职责边界
+
+Monitor（人类或 agent）**只观察记录，绝不介入决策**。即使知道"装个 flash-attn 就能跑"，也不应该帮 agent 做。原因：
+
+1. **每个干预都是框架改善机会的丢失** — 如果这次帮装了，install-env 的 import 预检永远不会被加
+2. **长尾场景的样本比成功更重要** — 失败记录是优化 spec 的输入
+3. **Agent 的自主决策能力需要试错空间** — 不犯错就不知道规则缺什么
+
+---
+
 ## ChangeLog
 
 - **2026-06-11** — 初始设计，基于 cron-2026-06-11-110631 SCAIL 实战复盘
+- **2026-06-11** — 第二轮复盘：续跑 3 attempts 全失败，新增 P8-P12，Monitor 职责边界
