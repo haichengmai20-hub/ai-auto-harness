@@ -86,7 +86,7 @@
 ## 修复结果
 
 - **状态**: ✅ 成功
-- **commit hash**: 待 commit 后回填
+- **commit hash**: `cda7d9e`
 - **commit message**: `ai-auto: P1 fix #39 — P1-P12 实现审查更正(4 bug + 编号冲突 + 规则下沉 SKILL)`
 
 ---

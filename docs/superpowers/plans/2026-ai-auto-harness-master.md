@@ -129,7 +129,7 @@
 
 | 日期 | Fix | 部署项目 | 影响 | commit | 状态 |
 |---|---|---|---|---|---|
-| 2026-06-11 | [p1-p12-implementation-corrections-fix](../fixes/2026-06-11-p1-p12-implementation-corrections-fix.md) **P1** | scail | SCAIL 批次审查:4 真 bug(重试 env 不传播/对账路径错/优先级/glob)+ 续跑误杀大项目 + R4.1/R4.2 撞号→R4.6/R11 + P10-P12 下沉 run-and-repair SKILL | `<本次>` | ✅ 已闭环 |
+| 2026-06-11 | [p1-p12-implementation-corrections-fix](../fixes/2026-06-11-p1-p12-implementation-corrections-fix.md) **P1** | scail | SCAIL 批次审查:4 真 bug(重试 env 不传播/对账路径错/优先级/glob)+ 续跑误杀大项目 + R4.1/R4.2 撞号→R4.6/R11 + P10-P12 下沉 run-and-repair SKILL | `cda7d9e` | ✅ 已闭环 |
 | 2026-06-10 | [claude-md-slimming-fix](../fixes/2026-06-10-claude-md-slimming-fix.md) | N/A 平台 | CLAUDE.md 23KB→7KB 结论版,详解外迁 specs/2026-06-10-r-rules-reference.md,规则零删减 | `8159339` | ✅ 已闭环 |
 | 2026-06-10 | [external-review-sentinel-wallclock-runs-fix](../fixes/2026-06-10-external-review-sentinel-wallclock-runs-fix.md) **P0** | scail + magenta | sentinel 假 running 对账脚本 + R3 wall-clock 代码兜底 + runs 保守清理 + 5 小补丁(外部 review 20 条裁决表见 fix 文档) | `2dca1df` | ✅ 已闭环 |
 | 2026-06-10 | [no-proxy-pollution-gated-403-fix](../fixes/2026-06-10-no-proxy-pollution-gated-403-fix.md) **P0** | eagle | `.env` no_proxy 含 huggingface.co → fetch 全断网;删 SKILL 过时绕代理规则;gated 403 分类(preflight+fetch) | `f4c4355` | ✅ 已闭环 |
