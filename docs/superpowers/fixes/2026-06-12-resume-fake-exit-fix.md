@@ -94,5 +94,5 @@ PID 活着 → 不 dispatch SubAgent，直接跳到任务 4 写报告，告知 d
 
 ## 修复结果
 
-- **commit hash**: 待回填
+- **commit hash**: `c39dfe7`
 
