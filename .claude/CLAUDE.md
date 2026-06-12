@@ -11,6 +11,7 @@
 | GPU 单卡占用 | 已用 ≥ 25GB(31.8GB total)拒动 |
 | GPU 叠加预估 | 叠加后剩余必须 ≥ 2GB |
 | 磁盘 free | 拉权重前 free ≥ (估算总大小 + 50GB safety) |
+| 磁盘 cron 门槛 | free < 150GB 不起新 cron run(daily.sh / hermes preflight 代码强制,`AI_HARNESS_MIN_FREE_GB` 可调)— 本机训练优先,部署让路 |
 | 模型规模 | self-host 目标 ≤ 30B 参数;超过走 api-skeleton |
 | torch sm 兼容 | wheel 必须含 sm_12.0(5090) |
 | 并发项目数 | 单次 cron run N=1 |
@@ -70,6 +71,12 @@
   - 动机: 23KB 每 session 注入,规则被 3 倍体积的解释稀释,实测遵守率没换来(R9 5/5 违反);结论与教学材料分层
   - 证据: [fixes/2026-06-10-claude-md-slimming-fix.md](../docs/superpowers/fixes/2026-06-10-claude-md-slimming-fix.md)(含瘦身前后规则覆盖自查表)
   - 验证: ✅ 规则零删减自查 + 无程序化消费者(grep hooks/cron/scripts 仅 prose 引用)
+
+- **2026-06-12** — 磁盘 cron 门槛 150GB
+  - 变更类型: 硬约束(新增)
+  - 影响范围: 资源硬约束表;`cron/daily.sh`(含 30min 续跑/15min 重试链)与 `hermes/scripts/harness-preflight.sh` 代码强制
+  - 动机: 用户要求 — 本机同时跑训练(RL/SFT 链),部署峰值(权重+venv+wheel 几十 GB)可能挤爆磁盘;free < 150GB 时 cron 不起新 run,已在后台的下载不受影响
+  - 验证: ✅ 双端阈值拉到 9999 触发 DISK_GATE / 正常阈值放行
 
 - **2026-06-11** — SCAIL 试跑三规则(P10/P11/P12)+ 审查更正编号与上限冲突
   - 变更类型: 规则(R3 轮次分类 / R4.6 poll 动态间隔 / R11 分支纪律)

@@ -12,6 +12,16 @@ mkdir -p state
 
 echo "=== ai-auto-harness preflight $(date -Iseconds) ==="
 
+# ---- -1. 磁盘门槛(2026-06-12 用户要求,与 CC daily.sh 同一阈值) ----
+# free < 150GB 不起新 run:本机还跑训练,部署峰值(权重+venv+wheel)必须让路。
+MIN_FREE_GB="${AI_HARNESS_MIN_FREE_GB:-150}"
+FREE_GB=$(df -BG "$HARNESS_ROOT" | awk 'NR==2 {gsub("G","",$4); print $4}')
+if [ "${FREE_GB:-0}" -lt "$MIN_FREE_GB" ]; then
+    echo "DISK_GATE: free=${FREE_GB}GB < ${MIN_FREE_GB}GB,磁盘不足。"
+    echo "→ 指令:本次不接续、不选新项目、不 dispatch 任何阶段;输出一行'磁盘门槛跳过'即结束。已在后台的下载不受影响。"
+    exit 0
+fi
+
 # ---- 0. 并发判定(替代 CC daily.sh 的 flock 全程持锁) ----
 # guard.env.sh 在 harness 树内每个 bash 启动时 touch state/agent-heartbeat。
 # 心跳 < 30min = 可能有另一个 agent run(本 cron 或人工 session)在干活。

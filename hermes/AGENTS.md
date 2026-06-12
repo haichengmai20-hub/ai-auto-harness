@@ -14,7 +14,7 @@
 |---|---|
 | GPU 单卡 | 已用 ≥25GB(32GB total)的卡不参与分配 — **那是用户训练,严禁清理/kill** |
 | GPU 叠加 | 叠加后剩余 ≥2GB;聚合判定需模型支持多卡切分 |
-| 磁盘 | 拉权重前 free ≥ 估算 + 50GB |
+| 磁盘 | 拉权重前 free ≥ 估算 + 50GB;**free < 150GB cron 不起新 run**(preflight DISK_GATE,训练优先部署让路) |
 | 模型规模 | ≤30B self-host;超了走 api-skeleton |
 | 并发 | 单 cron run N=1 |
 | 修复轮 | 同阶段 3 轮后 pending_human(依赖缺失类例外 +2,见 run-and-repair playbook) |

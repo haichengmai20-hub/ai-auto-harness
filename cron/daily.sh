@@ -28,6 +28,17 @@ CLAUDE_CONFIG_DIR="${CLAUDE_HAHA_CONFIG_DIR:-$HARNESS_ROOT/.claude-haha}"
 cd "$HARNESS_ROOT"
 [ -f .env ] && set -a && source .env && set +a
 
+# ============ 磁盘门槛(2026-06-12 用户要求) ============
+# free < 150GB 不起新 run:权重下载 + venv + wheel 峰值可达几十 GB,
+# 且本机还跑训练(RL/SFT 链对磁盘敏感),部署 cron 必须让路,以免峰值挤爆磁盘。
+# 覆盖入口:cron 直跑 / 30min 续跑 / 15min 异常重试(三者都走本脚本)。
+MIN_FREE_GB="${AI_HARNESS_MIN_FREE_GB:-150}"
+FREE_GB=$(df -BG "$HARNESS_ROOT" | awk 'NR==2 {gsub("G","",$4); print $4}')
+if [ "${FREE_GB:-0}" -lt "$MIN_FREE_GB" ]; then
+    echo "[$(date -Iseconds)] DISK_GATE: free=${FREE_GB}GB < ${MIN_FREE_GB}GB,本次 cron 跳过(不起新 run,不影响已在后台的下载)" >&2
+    exit 0
+fi
+
 # 🔴 auto-daily cron 在 launch 时还不知道 slug(由 auto-daily skill 动态 pick),
 # 因此 LOG_DIR 保持全局 runs/cron-<ts>,作为唯一合法的"预挑暂存"目录(N=1,无跨项目混杂)。
 # slug 已知后 SubAgent 的双写仍走 $AI_HARNESS_RUN_DIR(= 本 cron 目录)。
