@@ -401,7 +401,166 @@ Monitor（人类或 agent）**只观察记录，绝不介入决策**。即使知
 
 ---
 
+## 7. 第三轮复盘：续跑假退出问题（2026-06-12 khala 实战）
+
+### 7.1 问题描述
+
+khala（48.6GB 权重）fetch-weights 阶段，后台 `hf download` PID 一直活着，但 cron 续跑反复 "检查一下就退出"，形成 **假退出 → 续跑 → 又假退出** 循环，浪费 token 和 API 调用。
+
+### 7.2 时间线
+
+```
+10:00  Run 100001: 选 khala → dispatch fetch-weights → CONCURRENT_HF 导致文件损坏
+       → bash_count=100, poll=10, hit R4 → paused_in_progress → 30min后续跑
+11:05  Run 110457: 续跑1 → 检测损坏 → force-download 重启 → poll 8 turn → R4 上限
+       → paused_in_progress → 30min后续跑
+11:53  Run 115235: 续跑2 → poll 进度 24% → 50min wall-clock → paused_in_progress → 30min后续跑
+12:40  Run 123924: 续跑3 → poll 进度 44% → 续跑配额 3/3 用完 → 留给次日
+```
+
+**4 次 run，总计 ~80 分钟，~300+ API 调用，实际只做了 "看一眼下载还在不在"。**
+
+### 7.3 根因分析
+
+| 问题 | 机制 | 后果 |
+|------|------|------|
+| fetch-weights PID 在后台活着，不需要 agent 守着 | `setsid nohup hf download &` 已 detached | agent poll 8 turn 确认 "还在下" 然后退 = 纯空转 |
+| R4 poll ≤8 turn 太短 | 设计意图防空转，但对后台下载场景误伤 | 8 turn 看几眼就退，下载还要几小时 |
+| 50min wall-clock 太短 | 48.6GB 下载需 2-3 小时 | 每次都超时 |
+| 每次续跑 agent 重新走完整 auto-daily 流程 | 任务1读state → 任务2跳过 → 任务3 dispatch SubAgent → SubAgent读SKILL → poll → 退出 | 大量 preamble 开销 |
+| 续跑配额 3 次/天 | 对 fetch-weights 这种纯等待场景，3 次 x 30min = 90min 完全不够 | 配额用完但下载远没完 |
+
+**核心矛盾**：fetch-weights 的下载是 nohup 后台进程，**根本不需要 agent 守着**。但每次续跑 agent 都重新 poll 8 turn 又退，形成循环空转。
+
+### 7.4 方案：fetch-weights 后台下载免续跑
+
+**核心思路**：后台下载进程还活着时，续跑不应做任何 poll / dispatch SubAgent，直接跳过。
+
+#### 7.4.1 daily.sh 改动
+
+在续跑判断中，区分 "需要 agent 介入的 in_progress" 和 "只需等待的 in_progress"：
+
+```bash
+# 现有逻辑：检测所有 in_progress 项目
+IN_PROGRESS_SLUGS=$(find workspace/ -maxdepth 2 -name state.json \
+  -exec jq -r 'select(.status == "in_progress" or .status == "paused_in_progress") | .slug' {} \;)
+
+# 新增：过滤掉 "后台下载还在跑" 的项目
+NEEDS_AGENT_SLUGS=""
+for slug in $IN_PROGRESS_SLUGS; do
+  sentinel="workspace/${slug}/.cache/handoff/fetch-weights-*.json"
+  if ls $sentinel 2>/dev/null; then
+    pid=$(jq -r '.pid' $sentinel 2>/dev/null)
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      echo "[$(date -Iseconds)] $slug: fetch-weights PID=$pid 仍在后台下载，跳过续跑" >> "$LOG_DIR/cleanup.log"
+      continue  # 不计入 NEEDS_AGENT
+    fi
+  fi
+  NEEDS_AGENT_SLUGS="$NEEDS_AGENT_SLUGS $slug"
+done
+
+# 用 NEEDS_AGENT_SLUGS 替代 IN_PROGRESS_SLUGS 做续跑判断
+if [ -n "$NEEDS_AGENT_SLUGS" ] && [ "$resume_count" -lt "$MAX_RESUMES" ]; then
+  # 有真正需要 agent 的项目 → 续跑
+  ...
+elif [ -n "$IN_PROGRESS_SLUGS" ]; then
+  # 只有后台下载在跑 → 不续跑，也不消耗配额
+  echo "[$(date -Iseconds)] 所有 in_progress 项目均在后台下载中，无需 agent 续跑" >> "$LOG_DIR/cleanup.log"
+fi
+```
+
+**效果**：
+- 后台下载进程活着 → 不续跑、不消耗配额、0 token
+- 下载完成后 PID 死 → 下次自然 cron（10:00）检测到 PID 死 → 正常续跑推进 install-env
+- 下载崩溃（PID 死 + exit_code ≠ 0）→ 同上，下次 cron 处理
+
+#### 7.4.2 auto-daily SKILL 改动
+
+任务 1 接续检查新增规则：
+
+```
+如果 state.phase == "fetching" 且 handoff 存在且 PID 仍活着:
+  → 不 dispatch fetch-weights SubAgent
+  → 不消耗续跑配额
+  → 跳到任务 4 写报告（标注 "后台下载进行中，无需 agent 介入"）
+  → 让 daily.sh 也不设续跑（通过输出标记告知 daily.sh）
+```
+
+主 agent 返回时增加字段：
+
+```json
+{
+  "paused_in_progress": true,
+  "bg_download_alive": true,   // 新增：后台下载进程仍活着
+  "skip_resume": true          // 新增：告诉 daily.sh 不需要续跑
+}
+```
+
+#### 7.4.3 fetch-weights SKILL 改动
+
+现有逻辑：
+```
+PID 活着 → poll 8 turn → paused_in_progress → 退出
+```
+
+改为：
+```
+PID 活着 → 1 次 kill -0 确认 + 1 次 du -sh 估进度 → 返回 {paused_in_progress: true, bg_download_alive: true, skip_resume: true}
+```
+
+**1 turn 完成而不是 8 turn**。省 7 turn 的 API 调用。
+
+#### 7.4.4 场景验证
+
+**场景 1: khala 48.6GB 下载（本次实战）**
+
+```
+10:00  Run 1: 选 khala → dispatch fetch-weights → 后台下载启动
+       → 1 turn 确认 PID 活着 → bg_download_alive=true, skip_resume=true → 退出
+       → daily.sh 检测 skip_resume → 不设续跑，不消耗配额 ✅
+       → hf download 在后台继续跑（无 agent 干扰）
+次日 10:00  自然 cron → 检测 PID 已死 → 下载完成 → 推进 install-env ✅
+```
+
+对比现状：4 次 run × ~20 min × 100+ 调用 → **1 次 run × 1 turn × 1 调用**
+
+**场景 2: 下载中途崩溃**
+
+```
+10:00  Run 1: 后台下载启动 → 1 turn 确认 → 退出，不续跑
+11:30  hf download 崩溃（磁盘满/网络断）
+次日 10:00  自然 cron → 检测 PID 死 → dispatch fetch-weights → 发现 incomplete → force-download → ...
+```
+
+与现有行为一致，只是省了中间的无效续跑。
+
+**场景 3: 非 fetch-weights 的 paused_in_progress（install-env 慢）**
+
+```
+10:00  Run 1: install-env → pip 很慢 → paused_in_progress → bg_download_alive=false → skip_resume=false
+       → daily.sh 设 30min 续跑 ✅（与现有一致）
+```
+
+不受影响，只有 fetch-weights 后台下载场景走新逻辑。
+
+### 7.4.5 实现补记(2026-06-12,addendum)
+
+§7.4 草案已全部落地,但实现对草案做了 4 处修正,**以实现为准**:①判活加僵尸排查(`/proc/<pid>/stat` ≠ Z,kill -0 对 Z 误判活);②加 30min 停滞检测(否则"活着但卡死"的下载会被无限跳过,永远没人处理);③"等次日 cron"改为 **0-token 免配额复查链**(10min 一次,下载一结束就接续;复查触发的 agent 启动仍消耗续跑配额防失控);④判定逻辑收敛为 `scripts/check-bg-downloads.sh` 单一真相源(daily.sh 入口 WAIT_GATE + 尾部续跑 + hermes preflight 三处共用),不依赖 agent 输出标记。测试与细节见 [fixes/2026-06-12-resume-fake-exit-fix.md](../fixes/2026-06-12-resume-fake-exit-fix.md)。
+
+### 7.5 实现优先级
+
+| 步骤 | 改动 | 工作量 | 收益 |
+|------|------|--------|------|
+| 1 | daily.sh 续跑判断加 PID 存活检查 | 10 行 bash | 立即消除假续跑 |
+| 2 | fetch-weights SKILL: PID 活着时 1 turn 退出 | 改 SKILL.md 3 行 | 省 7 turn/次 |
+| 3 | auto-daily SKILL: 任务 1 加 bg_download_alive 判断 | 改 SKILL.md 5 行 | 省 SubAgent dispatch 开销 |
+
+步骤 1 可以独立上线，步骤 2-3 是进一步优化。
+
+---
+
 ## ChangeLog
 
 - **2026-06-11** — 初始设计，基于 cron-2026-06-11-110631 SCAIL 实战复盘
 - **2026-06-11** — 第二轮复盘：续跑 3 attempts 全失败，新增 P8-P12，Monitor 职责边界
+- **2026-06-12** — 第三轮复盘：khala 实战暴露续跑假退出问题，新增 §7：fetch-weights 后台下载免续跑方案

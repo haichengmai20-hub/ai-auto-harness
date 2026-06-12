@@ -34,7 +34,10 @@ echo "=== PHASE_START phase=fetch-weights slug=$SLUG run_id=$RUN_ID ts=$(date -I
 ## 第 1 步:接续判定
 
 读 `state.fetch_state.{weights_done, weights_pending, bg_shells}`:
-- bg_shells 有 PID → `kill -0` + **查 `/proc/<pid>/stat` 第 3 列 `Z`(僵尸=死,容器 PID 1 不收尸)**:活着且文件在长 → 跳第 3 步 poll;死了未完 → 第 2 步重启(默认续传);死了已完 → 标 done
+- bg_shells 有 PID → `kill -0` + **查 `/proc/<pid>/stat` 第 3 列 `Z`(僵尸=死,容器 PID 1 不收尸)**:
+  - **健康(活+非僵尸+30min 内有进度)→ 快速退出(1 turn,不 poll)**:`du -sb` 记 progress.json → state 写 paused_in_progress → return `{"paused_in_progress":true,"bg_download_alive":true,"skip_resume":true,"bytes_total":N}`。下载不用守,preflight/复查链会在结束后接续(khala 实战:守下载空转 4 次续跑 300+ 调用)
+  - 活着但 30min 无进度 → 停滞,走第 3 步卡死分支(kill 自有 PID + 删 .incomplete + 重启)
+  - 死了(含僵尸)未完 → 先补写 sentinel 终态再第 2 步重启(默认续传);死了已完 → 标 done
 - fetch_state 空 → 初始化 weights_pending = hf_repos
 
 ## 第 2 步:启动后台下载(每 repo 串行)

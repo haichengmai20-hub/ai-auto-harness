@@ -48,6 +48,7 @@ find workspace -maxdepth 2 -name state.json -exec jq -c '{slug, phase, status, p
 ```
 
 - **接续筛选**:`phase ∉ {done, archived, paused_for_human}` **且 `status != "paused_for_human"`**(status 才是暂停轴 — eagle 实测只看 phase 会误接续 gated 项目)
+- **后台下载免守**:dispatch 前先 `bash scripts/check-bg-downloads.sh` — `WAITING <slug>` = 后台下载健康,**不 dispatch**,报告标注"下载进行中"即可(khala 实战:守着下载空转 4 次续跑 300+ 调用);`NEEDS_AGENT <slug> reason=...` 才派发对应阶段
 - **P8 资源重试**:`previous_failure` 为 `*_RESOLVED`(如 `gpu_memory_insufficient_RESOLVED`)→ **必须重试**,资源条件已被人确认恢复
 - **outcomes 回填**:`state/outcomes-pending.jsonl` 非空 → 逐行重试 MCP `record_outcome`,成功的行移除
 

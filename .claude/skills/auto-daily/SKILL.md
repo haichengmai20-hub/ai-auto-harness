@@ -67,6 +67,16 @@ find workspace -maxdepth 2 -name state.json -exec jq -c '{slug, phase, phases_do
 
 **资源变化重试 (P8 fix, 2026-06-11)**:如果 state.json 含 `previous_failure` 且值为 `*_RESOLVED`(如 `gpu_memory_insufficient_RESOLVED`),**必须重试**而非跳过 — 资源条件已变化(如 GPU 释放),上次失败原因已消除。`resume_reason` 字段提供重试上下文给 SubAgent。
 
+**🔴 后台下载免守判定 (2026-06-12 假退出修正,在 dispatch 任何 SubAgent 前做)**:对每个 in_progress 项目先跑一条 bash:
+
+```bash
+bash scripts/check-bg-downloads.sh
+```
+
+- 输出 `WAITING <slug> ...` → 该项目的后台下载**健康进行中,不需要 agent**:**不 dispatch** fetch-weights SubAgent,直接跳任务 4 写报告(标注"后台下载进行中,无需 agent 介入,by 复查链接续"),return 加 `"bg_download_alive": true, "skip_resume": true`。khala 实战:4 次续跑 poll 8 轮只为"看一眼还在下",~300+ API 调用全浪费
+- 输出 `NEEDS_AGENT <slug> reason=...` → 正常 dispatch 对应阶段 SubAgent(pid_dead=下载完成或崩溃该接续;stalled=卡死该重启;no_running_sentinel=该推进)
+- daily.sh 入口有同款 WAIT_GATE,多数"全健康"场景你根本不会被启动;能走到这里说明大概率有活干,但仍要按上面判定逐项目确认
+
 也扫 `pending_human/*.md`(不重跑,但报告里要标)。
 
 **outcome 补回填(2026-06-10 外部 review #20 采纳)**:若 `state/outcomes-pending.jsonl` 存在且非空 — 这是上次 run record_outcome MCP 调用失败的本地暂存 — 逐行重试 `mcp__ai_daily_scan__record_outcome(...)`,成功的行从文件移除(全部成功则删文件)。不补回填,scan 会重复推荐已处理过的项目。
@@ -305,3 +315,8 @@ force_cleanup_incomplete: false
   - 影响范围: 任务 1
   - 动机: SCAIL 实测 — GPU 释放后重置 state 重试,agent 看到旧 record_outcome(failed) 仍跳过;previous_failure=*_RESOLVED 标记 = 人已确认失败原因消除,必须重试
   - 证据: specs/2026-06-11-试跑复盘与验证清单.md(P8)
+- **2026-06-12** — 后台下载免守判定(假退出修正)
+  - 变更类型: 流程 + schema(return 加 bg_download_alive/skip_resume)
+  - 影响范围: 任务 1(dispatch 前 check-bg-downloads.sh 判定)
+  - 动机: khala 48.6GB 实战 — 后台 setsid nohup 下载活着时 agent 反复续跑空转(4 次 ~80min/300+ 调用);健康下载交给 daily.sh 免费复查链,agent 只处理 NEEDS_AGENT
+  - 证据: [fixes/2026-06-12-resume-fake-exit-fix.md](../../../docs/superpowers/fixes/2026-06-12-resume-fake-exit-fix.md) + specs/2026-06-11-cron-resume-and-optimization.md §7

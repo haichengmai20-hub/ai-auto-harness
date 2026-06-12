@@ -102,9 +102,23 @@ BG_SHELLS=$(jq -c '.fetch_state.bg_shells // []' "$WORKSPACE/state.json")
 ```
 
 **如果 state.fetch_state.bg_shells 非空**:
-- 用 BashOutput(shell_id) 看是否还活着(CC 的 shell_id 是 session 内句柄,session 重启后失效;此时用 `ps -p $PID` 或 `kill -0 $PID` 看 OS 进程是否还在)
-- 进程活着 + 文件还在长 → 直接跳到第 3 步 poll
-- 进程死了 + 文件未完 → 第 2 步重启(`hf download` 默认断点续传,不需要也没有 `--resume-download`)
+- 用 BashOutput(shell_id) 看是否还活着(CC 的 shell_id 是 session 内句柄,session 重启后失效;此时用 `ps -p $PID` 或 `kill -0 $PID` 看 OS 进程是否还在,**且查 `/proc/$PID/stat` 第 3 列排除 `Z` 僵尸** — 容器 PID 1 不收尸,kill -0 对僵尸误判活)
+- **进程健康(活着+非僵尸+30min 内有进度)→ 🔴 快速退出路径(2026-06-12 假退出修正,不进第 3 步 poll)**:
+
+  ```bash
+  # 一条 bash 完成判定 + 记录(khala 实战:接续 run poll 8 轮只为"看一眼还在下" = 纯空转)
+  PID=$(jq -r '.fetch_state.bg_shells[-1].pid' "$WORKSPACE/state.json")
+  ALIVE=$([ -d "/proc/$PID" ] && [ "$(awk '{print $3}' /proc/$PID/stat)" != "Z" ] && echo yes || echo no)
+  FRESH=$(find "$DEST" -type f -mmin -30 -print -quit 2>/dev/null)
+  BYTES=$(du -sb "$DEST" 2>/dev/null | awk '{print $1}')
+  echo "{\"ts\":\"$(date -Iseconds)\",\"repo\":\"$REPO\",\"bytes\":$BYTES,\"pid\":$PID,\"alive\":true}" >> "$WORKSPACE/.cache/handoff/progress.json"
+  ```
+
+  ALIVE=yes 且 FRESH 非空 → 更新 state(`status=paused_in_progress`)后**立即 return**:
+  `{"paused_in_progress": true, "bg_download_alive": true, "skip_resume": true, "weights_done": [...], "bytes_total": <BYTES>}`
+  下载不需要你守着;daily.sh 的免费复查链(0 token)会在它结束后接续。**不要 poll 8 轮**。
+- 进程活着但 30min 无进度(FRESH 空)→ 停滞,走第 4 步卡死判定(kill 自有 PID + 删 .incomplete + 重启)
+- 进程死了(含僵尸)+ 文件未完 → 先按 poll 第 0 项补写 sentinel 终态,再第 2 步重启(`hf download` 默认断点续传,不需要也没有 `--resume-download`)
 - 进程死了 + 文件已完 → 标 done,看下一个 repo
 
 **如果 state.fetch_state 空 OR weights_pending 全空**:
@@ -166,7 +180,11 @@ jq --arg shell "$SHELL_ID" --arg pid "$PID" --arg repo "<repo>" --arg ts "$(date
    "$WORKSPACE/state.json" > /tmp/s && mv /tmp/s "$WORKSPACE/state.json"
 ```
 
-## 第 3 步:Poll 循环(**不 sleep loop,8 turn 上限**)
+## 第 3 步:Poll 循环(**不 sleep loop,8 turn 上限;仅限本次 run 新启动的下载**)
+
+> 🔴 适用范围(2026-06-12 假退出修正):poll 只用于**本次 run 刚启动**的下载 — 头几分钟盯 1-2 轮,
+> 抓秒挂类失败(gated 403 / 磁盘 / 并发锁竞争)。确认进入稳定下载(PID 健康 + 字节在涨)后,
+> **走第 1 步同款快速退出**(bg_download_alive=true),不要耗满 8 轮。接续场景一律走第 1 步快退。
 
 **核心反模式提醒**(R4 全条):
 - ❌ **连续 sleep 绝对禁**(R4.2):上一 turn 是 sleep,这一 turn 不许 sleep。run2 实测连续 sleep 600 × 4 = 40min 烧 4 个 turn 干 0 件事
@@ -329,11 +347,16 @@ echo "=== PHASE_END   phase=fetch-weights slug=$SLUG status=done ts=$(date -Isec
   "weights_done": ["..."],
   "failed": [{"repo": "...", "error_class": "stuck|network|gated|other", "msg": "..."}],
   "paused_in_progress": false,
+  "bg_download_alive": false,
+  "skip_resume": false,
   "blocked": false,
   "paused_for_human": false,
   "bytes_total": 0
 }
 ```
+
+- `bg_download_alive`: 后台下载进程健康存活(快速退出路径置 true)
+- `skip_resume`: 告知主 agent/daily.sh 无需消耗续跑配额(daily.sh 会用 `scripts/check-bg-downloads.sh` 独立复核,该字段供报告用)
 
 ## 反模式总结
 
@@ -388,6 +411,11 @@ echo "=== PHASE_END   phase=fetch-weights slug=$SLUG status=done ts=$(date -Isec
   - 动机: scail 实测 — agent 现场手写 wrapper 丢掉 sentinel 终态写入,进程死 5h sentinel 仍 running;容器 PID 1 不收尸,kill -0 对僵尸误判活
   - 证据: [fixes/2026-06-10-external-review-sentinel-wallclock-runs-fix.md](../../../docs/superpowers/fixes/2026-06-10-external-review-sentinel-wallclock-runs-fix.md)
   - 验证: ✅ `scripts/reconcile-sentinels.sh` 实跑修正 3 个假 running sentinel
+- **2026-06-12** — 假退出修正:后台下载健康时快速退出,不 poll 8 轮
+  - 变更类型: 流程 + schema(返回加 bg_download_alive/skip_resume)
+  - 影响范围: 第 1 步接续判定(快退路径+僵尸排查+停滞分流)/ 第 3 步适用范围 / 返回 schema
+  - 动机: khala 48.6GB 实战 — 4 次续跑 ~80min/300+ API 调用只为"看一眼下载还在不在";后台 setsid nohup 下载不需要 agent 守,daily.sh 免费复查链(check-bg-downloads.sh)负责在下载结束后接续
+  - 证据: [fixes/2026-06-12-resume-fake-exit-fix.md](../../../docs/superpowers/fixes/2026-06-12-resume-fake-exit-fix.md) + specs/2026-06-11-cron-resume-and-optimization.md §7
 - ❌ 不要 wait 一个 bg shell — poll
 - ❌ 不要不 export `HF_HOME` 等就跑下载 — 会污染 ~/.cache/huggingface
 - ❌ 不要在 cron 快到时间但还在下时 kill 进程 — 让它后台继续

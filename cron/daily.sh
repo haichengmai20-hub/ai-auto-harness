@@ -39,6 +39,61 @@ if [ "${FREE_GB:-0}" -lt "$MIN_FREE_GB" ]; then
     exit 0
 fi
 
+# ============ 续跑配额常量(入口 WAIT_GATE 和尾部续跑判断共用) ============
+RESUME_COUNTER="$HARNESS_ROOT/state/resume-count-$(date +%Y-%m-%d).txt"
+MAX_RESUMES=3
+RESUME_DELAY_MIN=30
+BG_RECHECK_DELAY_MIN=10
+RESUME_LOG="$HARNESS_ROOT/logs/cron-resume-$(date +%Y%m%d).log"
+mkdir -p "$HARNESS_ROOT/logs" "$HARNESS_ROOT/state"
+
+# 免配额复查链:纯 bash sleep + 重入 daily.sh,0 token。
+# 用 state/bg-recheck.pid 去重,防多条链并发膨胀。
+schedule_bg_recheck() {
+    local marker="$HARNESS_ROOT/state/bg-recheck.pid" old
+    old=$(cat "$marker" 2>/dev/null || true)
+    if [ -n "$old" ] && [ -d "/proc/$old" ]; then
+        echo "[$(date -Iseconds)] 复查链已在等(PID=$old),不重复调度" >> "$RESUME_LOG"
+        return 0
+    fi
+    # 200>&- 关键:复查链子进程不许继承 flock FD,否则它睡 10min 期间锁死所有 daily.sh 启动
+    nohup bash -c "sleep $((BG_RECHECK_DELAY_MIN * 60)) && cd '$HARNESS_ROOT' && AI_HARNESS_BG_RECHECK=1 AI_HARNESS_IS_RESUME=1 bash cron/daily.sh" \
+        >> "$RESUME_LOG" 2>&1 200>&- &
+    echo $! > "$marker"
+    echo "[$(date -Iseconds)] 复查链已调度(PID=$!,${BG_RECHECK_DELAY_MIN}min 后 0-token 复查后台下载)" >> "$RESUME_LOG"
+}
+
+# ============ WAIT_GATE: 后台下载健康等待中 → 不起 agent ============
+# (fix: 2026-06-12-resume-fake-exit;khala 实战 4 次续跑全空转,~80min/300+ API 调用
+#  只为"看一眼下载还在不在"。后台 setsid nohup 下载不需要 agent 守。)
+# helper 区分:WAITING=健康后台进程(活着/非僵尸/30min 内有进度) vs NEEDS_AGENT(死/僵尸/停滞/无 sentinel)。
+BG_CHECK=$(bash "$HARNESS_ROOT/scripts/check-bg-downloads.sh" 2>/dev/null || true)
+BG_WAITING=$(echo "$BG_CHECK" | grep "^WAITING" || true)
+BG_NEEDS=$(echo "$BG_CHECK" | grep "^NEEDS_AGENT" || true)
+
+if [ -n "$BG_WAITING" ] && [ -z "$BG_NEEDS" ]; then
+    {
+        echo "[$(date -Iseconds)] WAIT_GATE: 所有 in_progress 均为健康后台下载,无需 agent,本次不启动 worker(0 token):"
+        echo "$BG_WAITING"
+    } >> "$RESUME_LOG"
+    schedule_bg_recheck
+    exit 0
+fi
+
+# 复查链触发且确有项目需要 agent → 此次启动消耗一个续跑配额
+# (防止"下载反复崩 → 复查 → 起 worker"绕过 3 次/天上限无限烧钱;
+#  自然 cron(10:00)与人工启动不走此分支,不消耗配额)
+if [ -n "${AI_HARNESS_BG_RECHECK:-}" ] && [ -n "$BG_NEEDS" ]; then
+    rc_now=$(cat "$RESUME_COUNTER" 2>/dev/null || echo 0)
+    case "$rc_now" in ''|*[!0-9]*) rc_now=0 ;; esac
+    if [ "$rc_now" -ge "$MAX_RESUMES" ]; then
+        echo "[$(date -Iseconds)] 复查发现需 agent [$(echo "$BG_NEEDS" | awk '{print $2}' | tr '\n' ' ')],但今日续跑配额(${MAX_RESUMES})已用完,留给次日 cron" >> "$RESUME_LOG"
+        exit 0
+    fi
+    echo $((rc_now + 1)) > "$RESUME_COUNTER"
+    echo "[$(date -Iseconds)] 复查链发现需 agent → 启动 worker(消耗续跑配额 $((rc_now + 1))/${MAX_RESUMES})" >> "$RESUME_LOG"
+fi
+
 # 🔴 auto-daily cron 在 launch 时还不知道 slug(由 auto-daily skill 动态 pick),
 # 因此 LOG_DIR 保持全局 runs/cron-<ts>,作为唯一合法的"预挑暂存"目录(N=1,无跨项目混杂)。
 # slug 已知后 SubAgent 的双写仍走 $AI_HARNESS_RUN_DIR(= 本 cron 目录)。
@@ -228,41 +283,41 @@ out_path.write_text(json.dumps(events, ensure_ascii=False, indent=2))
 print(f'trajectory.json: {len(events)} events')
 " 2>>"$LOG_DIR/harness.stderr.log" || true
 
-# ============ 续跑判断 (P0: 2026-06-11-cron-resume-and-optimization) ============
-# claude-haha 退出后，检查 workspace 是否有未完成项目。
-# 如果有，sleep 30 分钟后重新启动 daily.sh（最多续跑 3 次/天）。
-# 用 sleep+子进程替代 at（本机无 at 命令）。
-RESUME_COUNTER="$HARNESS_ROOT/state/resume-count-$(date +%Y-%m-%d).txt"
-MAX_RESUMES=3
-RESUME_DELAY_MIN=30
+# ============ 续跑判断 (P0: 2026-06-11-cron-resume-and-optimization;§7 假退出修正 2026-06-12) ============
+# claude-haha 退出后,用 check-bg-downloads.sh 区分两类未完成项目:
+#   NEEDS_AGENT(进程死/僵尸/停滞/无 running sentinel)→ 30min 续跑,消耗配额(3 次/天)
+#   WAITING(后台下载健康)→ 不消耗配额,调度 10min 免费复查链(0 token,下载一结束就能接续)
+# 常量已在入口段定义(RESUME_COUNTER/MAX_RESUMES/RESUME_DELAY_MIN/schedule_bg_recheck)。
+resume_count=$(cat "$RESUME_COUNTER" 2>/dev/null || echo 0)
+case "$resume_count" in ''|*[!0-9]*) resume_count=0 ;; esac
 
-resume_count=0
-if [ -f "$RESUME_COUNTER" ]; then
-    resume_count=$(cat "$RESUME_COUNTER" 2>/dev/null || echo 0)
-fi
+BG_CHECK_TAIL=$(bash "$HARNESS_ROOT/scripts/check-bg-downloads.sh" 2>/dev/null || true)
+NEEDS_AGENT_SLUGS=$(echo "$BG_CHECK_TAIL" | awk '/^NEEDS_AGENT/{print $2}')
+WAITING_SLUGS=$(echo "$BG_CHECK_TAIL" | awk '/^WAITING/{print $2}')
 
-# 检查是否有 in_progress / paused_in_progress 项目（不含 paused_for_human）
-IN_PROGRESS_SLUGS=$(find "$HARNESS_ROOT/workspace" -maxdepth 2 -name state.json \
-    -exec jq -r 'select(.status == "in_progress" or .status == "running" or .status == "paused_in_progress") | .slug' {} \; 2>/dev/null | head -5)
-
-if [ -n "$IN_PROGRESS_SLUGS" ] && [ "$resume_count" -lt "$MAX_RESUMES" ]; then
+if [ -n "$NEEDS_AGENT_SLUGS" ] && [ "$resume_count" -lt "$MAX_RESUMES" ]; then
     resume_count=$((resume_count + 1))
     echo "$resume_count" > "$RESUME_COUNTER"
-    echo "[$(date -Iseconds)] 续跑 ${resume_count}/${MAX_RESUMES}: 未完成项目 [$(echo $IN_PROGRESS_SLUGS | tr '\n' ' ')]，${RESUME_DELAY_MIN} 分钟后重跑" >> "$LOG_DIR/cleanup.log"
+    echo "[$(date -Iseconds)] 续跑 ${resume_count}/${MAX_RESUMES}: 需 agent 项目 [$(echo $NEEDS_AGENT_SLUGS | tr '\n' ' ')]，${RESUME_DELAY_MIN} 分钟后重跑" >> "$LOG_DIR/cleanup.log"
     # 释放 flock 锁，让续跑能获取
     exec 200>&-
     # 后台 sleep + 重启 daily.sh（nohup 确保不受当前 shell 退出影响）
     nohup bash -c "sleep $((RESUME_DELAY_MIN * 60)) && cd '$HARNESS_ROOT' && bash cron/daily.sh" \
         >> "$HARNESS_ROOT/logs/cron-resume-$(date +%Y%m%d).log" 2>&1 &
     echo "[$(date -Iseconds)] 续跑已调度 (PID=$!)" >> "$LOG_DIR/cleanup.log"
-elif [ -n "$IN_PROGRESS_SLUGS" ]; then
+elif [ -n "$NEEDS_AGENT_SLUGS" ]; then
     # 今日续跑配额用完 → 只停止续跑,**不**强标 paused_for_human。
     # (原实现会把仍在合法跨 cron 下载的 paused_in_progress 项目误标为 paused_for_human,
     #  而次日 cron 的接续筛选排除 paused_for_human → 大权重项目被永久搁浅。
     #  paused_in_progress 本来就是"下次 cron 接续"的设计状态,次日 10:00 自然继续;
     #  真正的失败升级由 R3 超时/3 轮修复上限走 request-human-intervention 正规通道。
     #  fix: 2026-06-11-p1-p12-implementation-corrections)
-    echo "[$(date -Iseconds)] 今日续跑配额(${MAX_RESUMES})已用完,留给次日 cron 接续: [$(echo $IN_PROGRESS_SLUGS | tr '\n' ' ')]" >> "$LOG_DIR/cleanup.log"
+    echo "[$(date -Iseconds)] 今日续跑配额(${MAX_RESUMES})已用完,留给次日 cron 接续: [$(echo $NEEDS_AGENT_SLUGS | tr '\n' ' ')]" >> "$LOG_DIR/cleanup.log"
+elif [ -n "$WAITING_SLUGS" ]; then
+    # 后台下载健康 → 不续跑、不消耗配额,只挂免费复查链(fix: 2026-06-12-resume-fake-exit)
+    echo "[$(date -Iseconds)] [$(echo $WAITING_SLUGS | tr '\n' ' ')] 后台下载健康进行中,不消耗续跑配额,挂 0-token 复查链" >> "$LOG_DIR/cleanup.log"
+    exec 200>&-
+    schedule_bg_recheck
 fi
 
 # 清理 3 天前的续跑计数文件(计数器按日期命名,无需午夜重置 —

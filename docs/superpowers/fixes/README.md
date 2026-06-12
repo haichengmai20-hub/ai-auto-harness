@@ -18,22 +18,23 @@
 
 ## 统计
 
-- **总计**: 39 条
+- **总计**: 40 条
 - **✅ 已闭环**: 37 条（#39 P1-P12 实现审查更正;#38 CLAUDE.md 瘦身 23KB→7KB 规则零删减;#37 sentinel 僵尸对账+R3 兜底+runs 清理(外部 review 采纳 9/20);2026-06-10 清积压:#15-#24 全部闭环;#36 no_proxy 污染断网+gated 403）
-- **🟡 部分落地**: 2 条（#30 fetch 完整性校验、#31 R9；均已补 committed 回归测试，待真实 e2e / 上游）
+- **🟡 部分落地**: 3 条（#40 续跑假退出(代码已落地+fixture 11 场景测试,待下个大权重项目实战验证);#30 fetch 完整性校验、#31 R9；均已补 committed 回归测试，待真实 e2e / 上游）
 - **❌ 未闭环**: 0 条
 - **P0**: 5 条
-- **P1**: 25 条
+- **P1**: 26 条
 - **P2**: 8 条
 
 > 注：上方 P0/P1/P2 为各 fix 文档 `级别` 字段的本表历史归类，与状态轴(已闭环/部分落地/未闭环)正交；优先级以各 fix 文档头部 `级别` 字段为准。
 
 ---
 
-## 🟡 部分落地（2 条 — 代码已写 + 回归测试，待真实 e2e / 上游）
+## 🟡 部分落地（3 条 — 代码已写 + 回归测试，待真实 e2e / 上游）
 
 | # | 级别 | 人话 | Fix 文件 | 已落地部分 | 残留 |
 |---|---|---|---|---|---|
+| 40 | P1 | 快递在路上,门卫每半小时叫醒经理"快递还没到"(khala 4 次空转 300+ 调用) | [resume-fake-exit](2026-06-12-resume-fake-exit-fix.md) | `check-bg-downloads.sh`(僵尸+30min 停滞双检)+ daily.sh WAIT_GATE/免配额复查链(FD200 防泄漏)+ fetch/auto-daily SKILL 快退 + hermes preflight 同步;fixture 11 场景全过 | 下个大权重项目实战验证(预期全程 ≤2 次 agent run) |
 | 30 | P1 | 下完快递不拆箱验货，少了一半零件不知道 | [fetch-weights-no-download-integrity-check](2026-06-03-fetch-weights-no-download-integrity-check-fix.md) | `validate-fetch-weights.sh` + SKILL.md Xet fallback + committed 回归测试(复现 469-vs-2.2GB) | 真实 GPU 权重下载→校验 + live-Xet-fallback 的 e2e 未跑，按"没真实 e2e 不算闭环"维持 🟡 |
 | 31 | P1 | 经理自己干 77 次活 0 次派工，警告也忽略 | [r9-task-dispatch-still-bypassed](2026-06-03-r9-task-dispatch-still-bypassed-fix.md) | PostToolUse hook R9 警告 + `validate-artifacts.sh`(已补回归测试) | 根因 S-1（SubAgent 拿不到 system-prompt）待 CC 平台；硬阻断方案已评估**拒绝**（会搞挂合法路由 bash） |
 
@@ -132,6 +133,9 @@
 - #32 scan→deploy 全链路 ✅（toonflow-app e2e）
 - #33 cleanup dry_run + 终态 ✅（toonflow-app e2e 真清 1.68GB + archived）
 
+### 🧊 khala
+- #40 续跑假退出 🟡（spec §7 已写，daily.sh/SKILL 代码待实现）
+
 ### 🧊 hunyuan3d-2
 - #14 verify schema ✅
 - #24 completed_at 字面量 ✅(防呆+扫描)
@@ -140,9 +144,10 @@
 
 ## 优先修复建议(2026-06-10 更新:积压已清零)
 
-**仅余 2 条部分落地**:
-1. #30 fetch-weights 下载完整性校验 — 🟡 validator + committed 回归测试已落地，待真实 GPU 权重下载 e2e
-2. #31 R9 Task() 仍被绕过 — 🟡 hook + artifact gate 已落地（含回归测试）；根因 S-1 待 CC 平台支持
+**仅余 3 条部分落地**:
+1. #40 续跑假退出 — 🟡 spec §7 已写（daily.sh PID 存活检查 + SKILL 1-turn 退出），代码待实现
+2. #30 fetch-weights 下载完整性校验 — 🟡 validator + committed 回归测试已落地，待真实 GPU 权重下载 e2e
+3. #31 R9 Task() 仍被绕过 — 🟡 hook + artifact gate 已落地（含回归测试）；根因 S-1 待 CC 平台支持
 
 **已闭环 fix 的残留注记**(不阻塞,在各自文档"闭环补记"里):
 - #16 第 3 档:容器重启 crond 自启未验证(supervisord entrypoint 需运维拍板)

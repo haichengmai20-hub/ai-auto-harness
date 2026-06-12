@@ -49,6 +49,20 @@ for f in workspace/*/state.json; do
     fi
 done
 
+# ---- 0.5 后台下载免守判定(fix: 2026-06-12-resume-fake-exit) ----
+# 后台 setsid nohup 下载健康时不需要 agent(khala 实战 4 次续跑全空转)。
+# helper 同 CC 版共用:WAITING=健康(活/非僵尸/30min 内有进度) vs NEEDS_AGENT。
+BG_CHECK=$(bash scripts/check-bg-downloads.sh 2>/dev/null || true)
+BG_WAITING=$(echo "$BG_CHECK" | grep "^WAITING" || true)
+BG_NEEDS=$(echo "$BG_CHECK" | grep "^NEEDS_AGENT" || true)
+if [ -n "$BG_WAITING" ] && [ -z "$BG_NEEDS" ]; then
+    echo "BG_DOWNLOAD: 所有 in_progress 均为健康后台下载:"
+    echo "$BG_WAITING"
+    echo "→ 指令:不接续、不选新项目、不 dispatch;输出一行'后台下载进行中,无需介入'即结束(1 turn)。"
+    exit 0
+fi
+[ -n "$BG_NEEDS" ] && { echo "--- 需 agent 介入的后台任务 ---"; echo "$BG_NEEDS"; }
+
 # ---- 1. reconcile 三件套(平台代码兜底,保守:只写文件不杀进程) ----
 for s in reconcile-sentinels.sh reconcile-state.sh enforce-wallclock.sh; do
     if [ -x "scripts/$s" ] || [ -f "scripts/$s" ]; then
