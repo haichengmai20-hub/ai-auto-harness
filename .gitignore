@@ -19,3 +19,7 @@ e2e-*/
 **/__pycache__/
 *.pile
 logs/
+state/guard-violations.log
+state/agent-heartbeat
+state/.monitor-guard-offset
+state/.pending-human-notified

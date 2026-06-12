@@ -1,0 +1,1 @@
+/root/ai-auto-harness/hermes/AGENTS.md
