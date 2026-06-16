@@ -52,7 +52,7 @@
 
 | # | 级别 | 人话 | Fix 文件 | commit | 影响项目 |
 |---|---|---|---|---|---|
-| 41 | **P0** | 修车工往源码里乱涂"加这个参数"→ 把车拆了:F9 自动修复盲 sed Python 入口文件,改成不动文件(转人工/走环境变量) | [f9-error-class-destructive-autofix](2026-06-16-f9-error-class-destructive-autofix-fix.md) | (待回填) | khala(Megatron 类) |
+| 41 | **P0** | 修车工往源码里乱涂"加这个参数"→ 把车拆了:F9 自动修复盲 sed Python 入口文件,改成不动文件(转人工/走环境变量) | [f9-error-class-destructive-autofix](2026-06-16-f9-error-class-destructive-autofix-fix.md) | `fb17a70` | khala(Megatron 类) |
 | 39 | P1 | 螺丝拧错孔×4 + 新规矩贴错墙(SubAgent 看不到) → 审查更正 SCAIL 批次 | [p1-p12-implementation-corrections](2026-06-11-p1-p12-implementation-corrections-fix.md) | `cda7d9e` | scail |
 | 38 | P2 | 23 页员工手册没人看完 → 压成 1 页墙贴,细则挂参考手册(规则零删减) | [claude-md-slimming](2026-06-10-claude-md-slimming-fix.md) | `8159339` | 全平台 |
 | 37 | **P0** | 工人死了 5 小时,白板还写"工作中" → 启动前对账改写真相 + R3 代码兜底 + runs 清理 | [external-review-sentinel-wallclock-runs](2026-06-10-external-review-sentinel-wallclock-runs-fix.md) | `2dca1df` | scail + magenta-realtime |

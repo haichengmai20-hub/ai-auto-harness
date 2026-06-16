@@ -65,9 +65,9 @@ salvageable：`shell_config_corrupt`(✅)、`system_dep_missing`(✅，仅 SoX/s
 - [x] phase-run-and-repair.sh 重写五分类(te_missing once-guard / te_spec+incompatible_ckpt 下调转人工 / distributed+port 走 env var)
 - [x] bash -n + 毁文件回归测试(5 分类全 entry=UNCHANGED;前三类转人工;distributed/port 设 MASTER_ADDR/PORT)
 - [x] 更新 framework-issues-cc-complete.md F9 状态注记 + fixes/README 索引
-- [ ] commit + 回填 hash
+- [x] commit + 回填 hash
 - [ ] (跟进,非本 fix) 行 221 paddle_onednn prepend 同样有 shebang/__future__ 破坏 + 共享 /tmp 竞争风险
 
 ## 修复结果
 
-- **commit hash**: (待回填)
+- **commit hash**: `fb17a70`
