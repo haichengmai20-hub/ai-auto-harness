@@ -90,7 +90,25 @@ for state_file in workspace/*/state.json; do
         fi
     fi
 
-    # === 规则 4: previous_failure=*_RESOLVED 提示(只记录,auto-daily SKILL P8 规则处理) ===
+    # === 规则 4: verify 已通过但 state 还是 verifying/running ===
+    # Qwen3-TTS 试跑发现: verify.json 存在且 passed=true, 但 state 还停留在 verifying/running
+    if { [ "$phase" = "verifying" ] || [ "$phase" = "verify" ]; } \
+       && [ "$status" != "done" ] && [ "$status" != "paused_for_human" ]; then
+        vjson="$WORKSPACE/results/verify.json"
+        if [ -f "$vjson" ]; then
+            vpassed=$(jq -r '.passed // false' "$vjson" 2>/dev/null)
+            if [ "$vpassed" = "true" ]; then
+                echo "[reconcile-state] $slug: verify.json passed=true 但 state=$status，修正为 done"
+                jq '.phase = "verifying" | .status = "done"
+                    | .phases_done = ((.phases_done // []) + ["verify"] | unique)
+                    | .updated_at = "'$(date -Iseconds)'"
+                    | .resume_reason = "state_reconciled: verify.json 已通过"' \
+                    "$state_file" > "${state_file}.tmp" && mv "${state_file}.tmp" "$state_file"
+            fi
+        fi
+    fi
+
+    # === 规则 5: previous_failure=*_RESOLVED 提示(只记录,auto-daily SKILL P8 规则处理) ===
     prev_fail=$(jq -r '.previous_failure // ""' "$state_file" 2>/dev/null)
     case "$prev_fail" in
         *RESOLVED*) echo "[reconcile-state] $slug: previous_failure=$prev_fail, 接续时应重试而非跳过" ;;

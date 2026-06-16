@@ -86,11 +86,12 @@ PYEOF
 
 ## 二、Qwen3-TTS 试跑新发现（CC 版待修）
 
-### Q4. from_pretrained 用 HF model id 重复下载 [待CC] P0
+### Q4. from_pretrained 用 HF model id 重复下载 [已修-Hermes]
 
 - **现象**: 权重已下载到 `workspace/.cache/hf_models/`，但 entry_script 写 `"Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"` 导致 from_pretrained 重新下载到 `~/.cache/huggingface/`（18GB 白下）
 - **根因**: intake 记录了 `weight_target_paths`（HF repo → 本地路径映射），但 run-and-repair 的 entry_script 不做替换
-- **修复方案**: run-and-repair 写 entry_script.py 前，扫描 intake.json 的 weight_target_paths，用 sed 替换所有 HF model id 为本地绝对路径
+- **修复**: phase-run-and-repair.sh 在 entry_script 写入后，读 intake.json 的 weight_target_paths，sed 替换所有 HF model id 为本地绝对路径（只替换本地目录存在的）
+- **文件**: `hermes/scripts/phase-run-and-repair.sh`
   ```bash
   # 伪代码
   WEIGHT_MAP=$(jq -c '.weight_target_paths[]' "$INTAKE_JSON")
@@ -103,18 +104,15 @@ PYEOF
   ```
 - **预估**: 0.5 天
 
-### Q5. 推理超时 600s 不够 [待CC] P0
+### Q5. 推理超时分级 [已修-Hermes]
 
 - **现象**: 0.6B 模型加载+推理就超时（600s），大模型更不可能
-- **修复方案**: 按模型参数量分级超时
+- **修复**: phase-run-and-repair.sh 从 intake.json 读 estimated_params_b，按参数量分级:
   ```
-  ≤1B → 900s
-  ≤3B → 1200s
-  ≤10B → 1800s
-  ≤30B → 3600s
+  ≤1B → 900s / ≤3B → 1200s / ≤10B → 1800s / ≤30B → 3600s / >30B → 5400s
   ```
-  timeout 值从 intake.json 的 `estimated_params_b` 读取
-- **预估**: 0.3 天
+  无 intake.json 时回退默认 600s。timeout 命令改用 `$INFER_TIMEOUT` 变量。
+- **文件**: `hermes/scripts/phase-run-and-repair.sh`
 
 ---
 
@@ -139,9 +137,9 @@ PYEOF
 - run-and-repair 对 service 类型走: start → poll health → infer → stop
 - **预估**: 2 天
 
-### F2. Privoxy 拦截 localhost [已部分修] P0
+### F2. Privoxy 拦截 localhost [已修] P0
 
-- Hermes 版: 所有 phase 脚本已加 `export no_proxy="127.0.0.1,localhost"`
+- Hermes 版: guard.env.sh 全局加 `no_proxy="127.0.0.1,localhost"`（所有 phase 脚本 source guard.env.sh 时自动生效）
 - CC 版: 需在 CLAUDE.md 和每个 SKILL.md 里加
 - **预估**: CC 版 0.5 天
 
@@ -181,11 +179,11 @@ PYEOF
 - 需要 dmesg 捕获 OOM kill 等
 - **预估**: 0.5 天
 
-### F9. 错误分类扩展 [待CC] P1
+### F9. 错误分类扩展 [已修-Hermes] P1
 
 - 当前只有 5 种: dep_missing / file_not_found / paddle_onednn / cuda_oom / unknown
 - Khala 遇到 3 种新错误全归 unknown
-- 建议增加:
+- **修复**: phase-run-and-repair.sh 新增 7 种错误分类及自动修复:
 
 | 错误模式 | 分类 | 修复策略 |
 |---|---|---|
@@ -231,11 +229,11 @@ PYEOF
 - 方案: 退出后检查 in_progress 项目，30min 后重新启动（最多 3 次/天）
 - **预估**: 1 天
 
-### P3. State.json 与实际文件不一致 [待CC] P1
+### P3. State.json 与实际文件不一致 [已修-Hermes] P1
 
 - 接续时 state 说是 fetching 但文件已下载完
-- 需要 reconcile-state.sh 验证
-- **预估**: 0.5 天
+- **修复**: reconcile-state.sh 新增规则 4 — verify.json passed=true 但 state 还停在 verifying/running 时自动修正
+- **文件**: `scripts/reconcile-state.sh`
 
 ### P4. GPU Preflight 不查实际空闲显存 [已部分修] P0
 
@@ -288,17 +286,19 @@ PYEOF
 
 | 优先级 | 编号 | 一句话 | 预估 |
 |---|---|---|---|
-| **P0** | H1-H3 | 同步 Hermes 已修的 bug（heredoc/phases_done/apt） | 1天 |
-| **P0** | Q4 | from_pretrained HF id → 本地路径替换 | 0.5天 |
-| **P0** | Q5 | 推理超时分级 | 0.3天 |
+| **P0** | H1-H3 | ✅ 同步 Hermes 已修的 bug（heredoc/phases_done/apt） | ✅已修 |
+| **P0** | Q4 | ✅ from_pretrained HF id → 本地路径替换 | ✅已修 |
+| **P0** | Q5 | ✅ 推理超时分级 | ✅已修 |
 | **P0** | F1 | 服务型推理支持 | 2天 |
+| **P0** | F2 | ✅ no_proxy（Hermes 版已修） | CC版0.5天 |
+| **P0** | F9 | ✅ 错误分类扩展（Hermes 版已修） | CC版0.5天 |
 | **P0** | P1 | Cron 续跑机制 | 1天 |
-| **P1** | F9 | 错误分类扩展 | 1天 |
 | **P1** | F5 | Megatron/TE 隐式依赖链 | 1天 |
 | **P1** | F4 | 后台进程 PID 注册 | 0.5天 |
 | **P1** | F6 | --use-checkpoint-args 兼容 | 0.5天 |
-| **P1** | P3/P8 | state 不一致 + 接续跳过 | 0.8天 |
-| **P2** | F2/F3 | no_proxy + GPU preflight（CC 版同步） | 1天 |
+| **P1** | P3 | ✅ state 不一致（Hermes 版已修） | CC版0.3天 |
+| **P1** | P8 | ✅ 接续跳过（CC版已有*_RESOLVED规则） | ✅ |
+| **P2** | F3 | GPU preflight（CC 版同步） | CC版0.5天 |
 | **P2** | F7/F8 | 批量依赖 + 子进程日志 | 1天 |
 | **P2** | F11-F13 | verify/cleanup/intake 服务型 | 2天 |
 | **P3** | F14-F20 | 历史遗留 | 3天 |

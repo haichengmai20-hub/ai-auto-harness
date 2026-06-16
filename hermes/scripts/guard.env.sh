@@ -56,6 +56,9 @@ if [ -z "${HF_TOKEN:-}" ] || [ -z "${http_proxy:-}" ]; then
 fi
 export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 export HF_HUB_DOWNLOAD_CONCURRENCY="${HF_HUB_DOWNLOAD_CONCURRENCY:-2}"
+# F2 fix: Privoxy 会拦截 localhost HTTP 请求,必须排除
+export no_proxy="${no_proxy:+$no_proxy,}127.0.0.1,localhost"
+export NO_PROXY="${NO_PROXY:+$NO_PROXY,}127.0.0.1,localhost"
 
 _guard_warn() {
     echo "$(date -Iseconds) pid=$$ pwd=$PWD $1" >> "$_GUARD_LOG" 2>/dev/null || true
