@@ -52,6 +52,9 @@ export CUDA_VISIBLE_DEVICES="$(echo ${GPU_PICKS[@]} | tr ' ' ',')"
 export HF_HOME="$WORKSPACE/.cache/huggingface"
 export HF_HUB_CACHE="$WORKSPACE/.cache/hf_hub"
 export TRANSFORMERS_CACHE="$WORKSPACE/.cache/transformers"
+# F2: 本机 Privoxy 会拦 localhost HTTP(127.0.0.1/localhost 的 health check、Gradio、本地 API 全被拦)→ 必须排除。
+# 只加 localhost,绝不把外网域名(huggingface.co 等)加进 no_proxy(本机无直连=断网,R7)。
+export no_proxy="127.0.0.1,localhost"; export NO_PROXY="127.0.0.1,localhost"
 ```
 
 ## 第 0.5 步:GPU pre-flight(在跑任何 GPU workload 前必做)
@@ -79,7 +82,38 @@ PFL_EXIT=$?
 
 **不要**装作没看见就继续试跑 — 那会浪费几分钟跑出 NaN / OOM / CPU fallback 才发现.
 
+## 第 0.7 步:HF model id → 本地路径替换(防 from_pretrained 重下,Q4)
+
+权重已由 fetch-weights 下到 `$WORKSPACE/.cache/hf_models/<org>/<repo>`,但 repo 代码里常写 `from_pretrained("Qwen/Qwen3-TTS-...")` 这种 **HF repo id** → 跑起来会**重新下载**到 `~/.cache/huggingface/`(几十 GB 白下,代理下还大概率超时)。**第一轮试跑前**先把它们替成本地路径。
+
+```bash
+INTAKE_JSON="$WORKSPACE/results/intake.json"
+# 列出 (hf_repo, 本地绝对路径),只保留本地目录确实存在的
+jq -r '.weight_target_paths[]? | "\(.hf_repo)\t\(.target_rel)"' "$INTAKE_JSON" 2>/dev/null | while IFS=$'\t' read -r HF_ID REL; do
+  LOCAL="$WORKSPACE/$REL"
+  [ -d "$LOCAL" ] || { echo "skip $HF_ID — 本地不存在 $LOCAL"; continue; }
+  echo "需替换: \"$HF_ID\" → \"$LOCAL\""
+  grep -rln "$HF_ID" "$WORKSPACE/repo" 2>/dev/null   # 哪些文件引用了它
+done
+```
+
+对 grep 出的文件,用 `Edit`(先 Read)把**作为模型加载参数**出现的 `"<hf_id>"` 改成 `"<本地绝对路径>"`(`from_pretrained` / `snapshot_download` / `AutoModel.from_pretrained` 等)。要点:
+
+- **只替换本地目录确实存在的 id**(上面 `-d "$LOCAL"` 已过滤);本地没下的别替(replace 成不存在路径反而更糟)。
+- **只替模型加载处**,不要无脑全文替换(同一字符串可能也出现在 log/注释里,改了无害但没必要)。
+- 量大时可 `sed -i "s|\"$HF_ID\"|\"$LOCAL\"|g" <file>`(用 `|` 分隔避免路径 `/` 冲突);只对确认是加载参数的文件用。
+- 每次替换 append 一行到 `fixes.log`:`echo "$(date -Iseconds) round=0 fix=hf_path_replace $HF_ID→$LOCAL" >> "$WORKSPACE/logs/fixes.log"`。
+
 ## 第 1 步:试跑 entry_script(每轮先做)
+
+**推理超时按模型大小分级(Q5)** — 600s 对 0.6B 都不够(加载+推理就超),大模型更不可能。从 intake.json 的 `estimated_params_b` 取超时:
+
+```bash
+PARAMS_B=$(jq -r '.estimated_params_b // 0' "$WORKSPACE/results/intake.json" 2>/dev/null)
+INFER_TIMEOUT=$(python3 -c "p=float('${PARAMS_B:-0}' or 0); print(900 if p<=1 else 1200 if p<=3 else 1800 if p<=10 else 3600 if p<=30 else 5400)" 2>/dev/null || echo 1800)
+echo "推理超时=${INFER_TIMEOUT}s (estimated_params_b=${PARAMS_B}B)" | tee -a "$LOG"
+```
+短任务同步跑时用 `timeout "$INFER_TIMEOUT" $ENTRY_SCRIPT`;长任务后台跑不设 timeout(靠 R3 wall-clock + poll 判活)。无 intake.json 时回退 1800s。
 
 **短任务**(脚本几秒到几分钟内出结果):
 
@@ -144,7 +178,16 @@ PID=$(cat "$WORKSPACE/.cache/run.pid" 2>/dev/null)
 | `exit_code = -15` (SIGTERM) | 超时被外部杀 | 看是不是脚本在等什么(下载、等输入) |
 | `exit_code = -9` (SIGKILL) | 内存不足 / cgroup OOM | 减大batch / 量化 |
 | `exit_code = 137` | OOMKill | 同上 |
-| `Connection refused / timed out` | 网络问题 | retry / 看是不是要本地服务 |
+| `Connection refused / timed out` | 网络问题 | retry / 看是不是要本地服务(localhost 被 Privoxy 拦?第 0 步已设 no_proxy) |
+| `transformer_engine not available` / `No module named transformer_engine` | TE 缺失 | 装**一次** `pip install transformer-engine[pytorch]`;仍缺 → **转人工**(TE 是空 meta 包,需源码编译 CUDA kernel >10min,不在 cron 里强编) |
+| `TESpecProvider not defined` / `persist_layer_norm not supported` / `rope_fusion not supported` | Megatron checkpoint/CLI 参数不兼容 | 这是**启动命令层 flag**(`--transformer-impl local`/`--no-persist-layer-norm`/`--no-rope-fusion`),**不是 entry 源码能 sed 进去的** → 转人工,把建议 flag 写进 `next_steps_suggested`(见下方红线) |
+| `MASTER_ADDR is not set` / `distributed not initialized` | 分布式环境缺失 | `export MASTER_ADDR=127.0.0.1 MASTER_PORT=$((29500+RANDOM%1000)) RANK=0 WORLD_SIZE=1 LOCAL_RANK=0`(**改环境变量,不改源码**),重跑 |
+| `Address already in use` / `EADDRINUSE` | 端口冲突 | `export MASTER_PORT=$((20000+RANDOM%10000))`(**改环境变量,不要全局 sed 数字**——会误伤 batch_size/维度);仍冲突 → 转人工 |
+| `openclaw No such file` / `.bashrc syntax error` | shell 配置污染 | `export BASH_ENV=/dev/null`(绕过 .bashrc),重跑 |
+| `sox/SoX not found` / `ffmpeg not found` / `libsndfile not found` / `tesseract not found` / `poppler not found` | 系统依赖缺失(非 pip 能装) | `apt-get install -y` 对应包:sox→`sox libsox-dev`、ffmpeg/ffprobe→`ffmpeg`、libsndfile→`libsndfile1`、tesseract→`tesseract-ocr`、poppler→`poppler-utils`、ImageMagick→`libmagickwand-dev` |
+
+> **🔴 改 entry 源码的红线(F9 审查教训,fix #41)**:上表 Megatron/分布式/端口类错误的修复是**环境变量或启动命令 flag**,**不是 Python 源码里能 sed 进去的东西**。**严禁**用 `sed` 往 entry 的 `.py` 里塞 `--xxx` flag 或盲替数字 —— 实测会把 `args`/`argparse`/`sys.argv` 替成注释、把 `batch_size=8000` 当端口改掉,直接毁文件。能用环境变量(`MASTER_*`/`BASH_ENV`)就用环境变量;只能在启动命令层加的 flag → **`paused_for_human`** + 把建议 flag 写进 `next_steps_suggested`(`error_class`/`suggested_fix` 也落进 run.json)。
+> **TE / 系统依赖类不计 3 轮上限**(R3/P11 依赖缺失类);Megatron CLI 参数类**直接转人工**(本平台修不了,别烧轮)。
 
 ### 还在跑判定(长任务)
 
@@ -270,7 +313,8 @@ if round_count == 3 and not passed:
 cat > "$WORKSPACE/results/run.json" <<JSON
 {
   "passed": <true|false>,
-  "error_class": <"CUDA_OOM" | "MODULE_MISSING" | ... | null>,
+  "error_class": <"CUDA_OOM" | "MODULE_MISSING" | "te_missing" | "te_spec_missing" | "incompatible_checkpoint_arg" | "distributed_env_missing" | "port_conflict" | "shell_config_corrupt" | "system_dep_missing" | ... | null>,
+  "suggested_fix": <"转人工时给的建议(如建议加哪些 Megatron flag);无则 null">,
   "repair_count": <int>,
   "stdout_tail": "<last 50 lines from $LOG>",
   "gpu_snapshot": {...},
@@ -322,8 +366,18 @@ echo "=== PHASE_END   phase=run-and-repair slug=$SLUG status=done ts=$(date -Ise
 - ❌ 不看 nvidia-smi 就判定"模型在跑"
 - ❌ 有真实代码/配置适配却把 `repair_count` 写 0、`fixes_applied` 留空 — 适配动作(改 import/config/patch 代码)都必须入账
 - ❌ **`git checkout`/`git switch` 切分支当"修复手段"** — 丢补丁 + 结构不兼容(R11,SCAIL 实测);切分支的念头 = 该 paused_for_human 让人决策了
+- ❌ **用 `sed` 往 entry 的 `.py` 里塞 CLI flag / 盲替数字** — Megatron `--transformer-impl local` 等是启动命令层参数,sed 进 Python 源码 = SyntaxError;盲替端口数字会误伤 batch_size/维度(fix #41 实测会把 `args`/`argparse` 全替成注释毁文件)。环境变量能解决的用环境变量,只能加 flag 的转人工
+- ❌ **entry 里留 HF repo id 不替本地路径** — `from_pretrained("org/model")` 会重下几十 GB 到 `~/.cache`(第 0.7 步必做替换)
+- ❌ **推理超时写死 600s** — 0.6B 都不够,按 `estimated_params_b` 分级(第 1 步 Q5)
 
 ## ChangeLog
+
+- **2026-06-16** — CC 版同步 Q4/Q5/F2/F9 安全集(Hermes `be54e47`/`fb17a70` → CC SKILL)
+  - 变更类型: 流程(新增第 0.7 步)+ 硬约束(F9 红线)+ schema(error_class 扩 + suggested_fix)+ 反模式
+  - 影响范围: 第 0 步(F2 no_proxy)/ 第 0.7 步(Q4 HF 路径替换)/ 第 1 步(Q5 超时分级)/ 第 3 步错误表(F9 安全集 + 改源码红线)/ run.json schema / 反模式段
+  - 动机: 上一轮(`be54e47`)只改了 Hermes 侧 phase-*.sh,生产 CC 版未同步;且 F9 三个分类用 sed 改 Python 源码会毁文件(fix #41 已在 Hermes 修正)→ CC 版**只移植安全集**,毁灭性 sed 绝不进 CC,Megatron CLI 参数类一律转人工
+  - 证据: [fixes/2026-06-16-cc-sync-q4-q5-f2-f9-fix.md](../../../docs/superpowers/fixes/2026-06-16-cc-sync-q4-q5-f2-f9-fix.md) + [fixes/2026-06-16-f9-error-class-destructive-autofix-fix.md](../../../docs/superpowers/fixes/2026-06-16-f9-error-class-destructive-autofix-fix.md)
+  - 验证: SKILL 自查(无 sed-on-py 指令;红线/反模式齐全);P3 经 shared `scripts/reconcile-state.sh` 已生效无需 CC 单独改
 
 - **2026-06-11** — P10/P11/P12 规则下沉本 SKILL(SubAgent 收不到 CLAUDE.md,S-1)
   - 变更类型: 硬约束 + 流程 + 反模式
