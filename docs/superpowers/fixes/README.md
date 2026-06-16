@@ -52,7 +52,7 @@
 
 | # | 级别 | 人话 | Fix 文件 | commit | 影响项目 |
 |---|---|---|---|---|---|
-| 43 | P2 | 清四个小坑:装包漏系统命令/依赖一个个装/子进程被杀看不到错/.bashrc 语法错污染输出 | [cc-batch2-h3-f7-f8-f10](2026-06-16-cc-batch2-h3-f7-f8-f10-fix.md) | (待回填) | 全平台(CC 版) |
+| 43 | P2 | 清四个小坑:装包漏系统命令/依赖一个个装/子进程被杀看不到错/.bashrc 语法错污染输出 | [cc-batch2-h3-f7-f8-f10](2026-06-16-cc-batch2-h3-f7-f8-f10-fix.md) | `1886f8c` | 全平台(CC 版) |
 | 42 | P1 | 修好的工具只发给了 B 班,A 班(生产)还在用旧的 → 把 Q4/Q5/F2/F9 安全集同步进 CC 版 SKILL(毁文件的 sed 绝不进) | [cc-sync-q4-q5-f2-f9](2026-06-16-cc-sync-q4-q5-f2-f9-fix.md) | `6aad610` | 全平台(CC 版) |
 | 41 | **P0** | 修车工往源码里乱涂"加这个参数"→ 把车拆了:F9 自动修复盲 sed Python 入口文件,改成不动文件(转人工/走环境变量) | [f9-error-class-destructive-autofix](2026-06-16-f9-error-class-destructive-autofix-fix.md) | `fb17a70` | khala(Megatron 类) |
 | 39 | P1 | 螺丝拧错孔×4 + 新规矩贴错墙(SubAgent 看不到) → 审查更正 SCAIL 批次 | [p1-p12-implementation-corrections](2026-06-11-p1-p12-implementation-corrections-fix.md) | `cda7d9e` | scail |
