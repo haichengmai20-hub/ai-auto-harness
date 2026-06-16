@@ -157,6 +157,17 @@ PID=$(cat "$WORKSPACE/.cache/run.pid" 2>/dev/null)
 [ -n "$PID" ] && kill -0 $PID 2>/dev/null && echo "alive" || echo "dead"
 ```
 
+**F8:子进程崩溃但 stderr 为空** — one-shot 子进程被 OOM kill / SIGKILL 时 stderr 经常空(只见 "exited with code 1" 没 traceback),根因全黑。退出非 0 且日志尾巴没 traceback 时,抓 dmesg:
+
+```bash
+if [ "${EXIT:-0}" -ne 0 ] && ! tail -20 "$LOG" | grep -qiE "Traceback|Error|Exception"; then
+  echo "--- 日志无 traceback,查 dmesg(OOM kill?)---" | tee -a "$LOG"
+  dmesg 2>/dev/null | grep -iE "Out of memory|Killed process|oom-kill" | tail -5 | tee -a "$LOG" \
+    || echo "(dmesg 无权限或无 OOM 记录)" | tee -a "$LOG"
+fi
+```
+dmesg 里有 `Out of memory: Killed process` → 按 `CUDA_OOM`/系统 OOM 处理(减 batch/量化/换更空 GPU);无 OOM 又无 stderr → `error_class=unknown` + 把 dmesg 尾巴写进 run.json 方便人工诊断。
+
 ## 第 3 步:决策(LLM 判断)— 是否成功 / 真出错 / 还在跑 / 卡了
 
 ### 成功判定
@@ -218,6 +229,19 @@ PID=$(cat "$WORKSPACE/.cache/run.pid" 2>/dev/null)
   ```
 - **修配置**:`Edit workspace/<slug>/repo/configs/<yaml>`(同样先 Read)
 - **修依赖**:`pip install/uninstall` — 写到 fixes_applied
+
+### 修依赖:批量装,别逐个(F7)
+
+依赖链深的项目(Megatron/DeepSpeed:`six → pybind11 → TE → ...`)逐个发现逐个装会烧很多轮(khala 光装依赖 5 轮)。看到 `ModuleNotFoundError` 时**一次收集本轮日志里所有缺失模块批量装**:
+
+```bash
+MISSING=$(grep -oE "No module named '([^']+)'" "$LOG" | sed "s/No module named '//;s/'//" | sort -u | tr '\n' ' ')
+[ -n "$MISSING" ] && { echo "[F7] 批量装: $MISSING" | tee -a "$LOG"; pip install $MISSING 2>&1 | tee -a "$LOG"; }
+```
+
+- 连续 2 轮都是 `dep_missing` → 触发**深度依赖扫描**:`pip check` + 对 repo 里 `import` 的关键推理依赖逐个 `python -c "import X"`(install-env 第 6 步 P9 预检的同款思路,这里补漏)。
+- 批量装(含上面 F7 / TE / 系统依赖)属**依赖缺失类**,不计 3 轮上限(R3/P11)。
+- 顶层包名 ≠ pip 包名时(`cv2`→`opencv-python`、`PIL`→`pillow`、`sklearn`→`scikit-learn`)按已知映射换,装不上的别死磕,记 fixes.log 转下一手段。
 
 ### 每个修复都强制做这两件事
 
@@ -369,8 +393,17 @@ echo "=== PHASE_END   phase=run-and-repair slug=$SLUG status=done ts=$(date -Ise
 - ❌ **用 `sed` 往 entry 的 `.py` 里塞 CLI flag / 盲替数字** — Megatron `--transformer-impl local` 等是启动命令层参数,sed 进 Python 源码 = SyntaxError;盲替端口数字会误伤 batch_size/维度(fix #41 实测会把 `args`/`argparse` 全替成注释毁文件)。环境变量能解决的用环境变量,只能加 flag 的转人工
 - ❌ **entry 里留 HF repo id 不替本地路径** — `from_pretrained("org/model")` 会重下几十 GB 到 `~/.cache`(第 0.7 步必做替换)
 - ❌ **推理超时写死 600s** — 0.6B 都不够,按 `estimated_params_b` 分级(第 1 步 Q5)
+- ❌ **依赖逐个发现逐个装** — 深依赖链(Megatron 等)会烧很多轮;一次收集本轮所有 `No module named` 批量装(F7)
+- ❌ **子进程崩溃 stderr 空就判 unknown 不查 dmesg** — OOM kill 的 traceback 在 dmesg,不查就漏掉真因(F8)
 
 ## ChangeLog
+
+- **2026-06-16** — batch #2:F7 批量装依赖 + F8 子进程 dmesg 捕获(CC)
+  - 变更类型: 流程(第 4 步修依赖批量化 + 深度扫描)+ 流程(第 2 步 dmesg 捕获)+ 反模式
+  - 影响范围: 第 2 步(F8 空 stderr→dmesg)/ 第 4 步(F7 收集 ModuleNotFound 批量装 + 连续 2 轮 dep_missing 触发深度扫描 + 顶层包名↔pip 包名映射)/ 反模式段
+  - 动机: khala 光装依赖烧 5 轮(逐个装,F7);one-shot 子进程被 OOM kill 时 stderr 空、根因全黑(F8)。均为 [待CC] 净新项,Hermes 也未做
+  - 证据: [fixes/2026-06-16-cc-batch2-h3-f7-f8-f10-fix.md](../../../docs/superpowers/fixes/2026-06-16-cc-batch2-h3-f7-f8-f10-fix.md)
+  - 验证: SKILL 自查(F7 grep+sort -u 批量;F8 仅在 exit≠0 且无 traceback 时触发;依赖类不计轮一致 R3/P11)
 
 - **2026-06-16** — CC 版同步 Q4/Q5/F2/F9 安全集(Hermes `be54e47`/`fb17a70` → CC SKILL)
   - 变更类型: 流程(新增第 0.7 步)+ 硬约束(F9 红线)+ schema(error_class 扩 + suggested_fix)+ 反模式

@@ -65,7 +65,7 @@ PYEOF
 - **根因**: `jq '.phases_done += ["verify"]'` 追加不去重
 - **修复**: Python 侧改 `list(dict.fromkeys(...))`（去重保序），替代 `list(set(...))`（丢序）
 
-### H3. apt 系统依赖检测 [已修-Hermes]
+### H3. apt 系统依赖检测 [已修-Hermes,CC已同步]
 
 - **现象**: `pip install sox` 只装 Python wrapper，系统 `sox` 命令不存在
 - **修复**: install-env.sh 新增 6d 步骤，检测 9 组 Python↔apt 映射:
@@ -166,13 +166,13 @@ PYEOF
 - 需要自动追加 `--no-rope-fusion` / `--transformer-impl local` / `--no-persist-layer-norm`
 - **预估**: 0.5 天
 
-### F7. 批量依赖修复 [待CC] P2
+### F7. 批量依赖修复 [已修-CC] P2
 
 - 当前逐个装，Khala 光装依赖就花了 5 轮
 - 收集所有 ModuleNotFoundError 后批量 `pip install`
 - **预估**: 0.5 天
 
-### F8. 子进程错误日志丢失 [待CC] P2
+### F8. 子进程错误日志丢失 [已修-CC] P2
 
 - one-shot 子进程崩溃时 stderr 为空
 - 需要 dmesg 捕获 OOM kill 等
@@ -198,7 +198,7 @@ PYEOF
 
 - **预估**: 1 天
 
-### F10. .bashrc 污染检测 [已间接修] P2
+### F10. .bashrc 污染检测 [已间接修,CC加检测] P2
 
 - heredoc 改 `<<'PYEOF'` 后不受 .bashrc 影响
 - 但根因仍在，建议 preflight 加 `bash -n ~/.bashrc` 检测
@@ -299,7 +299,8 @@ PYEOF
 | **P1** | P3 | ✅ state 不一致（`scripts/reconcile-state.sh` 双框架共用,CC 自动生效） | ✅已修 |
 | **P1** | P8 | ✅ 接续跳过（CC版已有*_RESOLVED规则） | ✅ |
 | **P2** | F3 | GPU preflight（CC 版同步） | CC版0.5天 |
-| **P2** | F7/F8 | 批量依赖 + 子进程日志 | 1天 |
+| **P2** | F7/F8 | ✅ 批量依赖 + 子进程日志(CC 已同步) | ✅已修 |
+| **P2** | H3/F10 | ✅ apt 系统依赖 + .bashrc 检测(CC 已同步) | ✅已修 |
 | **P2** | F11-F13 | verify/cleanup/intake 服务型 | 2天 |
 | **P3** | F14-F20 | 历史遗留 | 3天 |
 

@@ -116,6 +116,9 @@ cd "$WORKSPACE"
 python -m venv venv 2>&1 | tee -a "$LOG"
 source venv/bin/activate
 which python 2>&1 | tee -a "$LOG"  # 验证指向 workspace/<slug>/venv/bin/python
+# F10: ~/.bashrc 若有语法错误,会在每次 source venv/activate 时吐两行错,污染日志+干扰错误检测。
+# 检测到就本 phase 起 export BASH_ENV=/dev/null 绕过(只影响本 SubAgent,不改全局 .bashrc — R1)。
+bash -n ~/.bashrc 2>/dev/null || { echo "[F10] ~/.bashrc 语法错误 → 本 phase export BASH_ENV=/dev/null 绕过" | tee -a "$LOG"; export BASH_ENV=/dev/null; }
 ```
 
 ### 第 2 步:升级核心工具
@@ -228,6 +231,35 @@ done
 
 如果安装失败（如 flash-attn 需要编译），**不阻塞 install-env**，但在 `install.json.warnings` 加 `"dep_install_failed: <dep>"`，让 run-and-repair 知道这个依赖可能缺失。
 
+### 第 6.5 步:apt 系统依赖检测(H3)
+
+有些 Python 包(sox/librosa/pydub/av/cv2/pytesseract/pdf2image/wand)需要**系统级命令行工具**,`pip install` 只装 Python wrapper、**不装系统命令** → 运行时报 `sox not found` / `SoX could not be found` 之类(qwen3-tts 实测烧了一轮)。pip 装完后扫一遍 import,缺系统包就 `apt-get install`:
+
+```bash
+declare -A APT_DEPS=(
+  ["sox"]="sox libsox-dev"
+  ["pydub"]="ffmpeg"
+  ["librosa"]="ffmpeg"
+  ["soundfile"]="libsndfile1"
+  ["av"]="ffmpeg libavcodec-dev libavformat-dev libavdevice-dev"
+  ["cv2|opencv"]="libgl1-mesa-glx libglib2.0-0"
+  ["pytesseract"]="tesseract-ocr"
+  ["pdf2image"]="poppler-utils"
+  ["wand"]="libmagickwand-dev"
+)
+for PY_MOD in "${!APT_DEPS[@]}"; do
+  grep -rqE "import ${PY_MOD}|from ${PY_MOD}" "$WORKSPACE/repo/" --include="*.py" 2>/dev/null || continue
+  PKGS="${APT_DEPS[$PY_MOD]}"; NEED=false
+  for PKG in $PKGS; do dpkg -s "$PKG" &>/dev/null || { NEED=true; break; }; done
+  [ "$NEED" = true ] || continue
+  echo "[H3] $PY_MOD 需系统依赖,装: $PKGS" | tee -a "$LOG"
+  apt-get install -y $PKGS 2>&1 | tail -3 | tee -a "$LOG" \
+    || echo "[H3] apt 装 $PKGS 失败 → install.json.warnings 记 apt_install_failed:$PKGS" | tee -a "$LOG"
+done
+```
+
+装失败**不阻塞**(同 P9),在 `install.json.warnings` 记 `apt_install_failed: <pkgs>`,run-and-repair 的 `system_dep_missing` 分类(F9)是运行期兜底。
+
 ### 第 7 步:写经验(lesson 写入机制)
 
 修复成功后,**判断 3 问**(同 run-and-repair):
@@ -314,6 +346,13 @@ echo "=== PHASE_END   phase=install-env slug=$SLUG status=done ts=$(date -Isecon
 - ❌ 用 Write 工具把含 `$(date)` / `<占位符>` 的 JSON 模板原样写盘 — 时间戳必须经 Bash heredoc 求值或 `jq --arg ts "$(date -Iseconds)"` 注入
 
 ## ChangeLog
+
+- **2026-06-16** — H3 apt 系统依赖检测 + F10 .bashrc 污染绕过(CC 同步,batch #2)
+  - 变更类型: 流程(新增第 6.5 步 + 第 1 步 F10 检测)
+  - 影响范围: 第 1 步(`bash -n ~/.bashrc` 失败→`BASH_ENV=/dev/null`)/ 新增第 6.5 步(9 组 Python↔apt 映射,缺系统命令则 apt 装,失败记 warnings 不阻塞)
+  - 动机: qwen3-tts 实测 `pip install sox` 只装 wrapper,系统 `sox` 命令缺失→运行期才炸(H3);.bashrc 第 139 行语法错误污染每条 bash 输出(F10)。Hermes 6d 已有,CC 同步
+  - 证据: [fixes/2026-06-16-cc-batch2-h3-f7-f8-f10-fix.md](../../../docs/superpowers/fixes/2026-06-16-cc-batch2-h3-f7-f8-f10-fix.md)
+  - 验证: SKILL 自查(映射与 Hermes 6d 一致;装失败不阻塞走 warnings)
 
 - **2026-06-10** — 时间戳/占位符字面量防呆
   - 变更类型: 反模式 + 验证
