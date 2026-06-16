@@ -179,11 +179,12 @@ PYEOF
 - 需要 dmesg 捕获 OOM kill 等
 - **预估**: 0.5 天
 
-### F9. 错误分类扩展 [已修-Hermes] P1
+### F9. 错误分类扩展 [已修-Hermes,已修正毁文件 bug] P1
 
 - 当前只有 5 种: dep_missing / file_not_found / paddle_onednn / cuda_oom / unknown
 - Khala 遇到 3 种新错误全归 unknown
 - **修复**: phase-run-and-repair.sh 新增 7 种错误分类及自动修复:
+- **⚠️ 2026-06-16 审查修正**: 初版 3 个分类用 `sed -i` 往 Python 入口文件塞 Megatron CLI flag = 毁文件(`incompatible_checkpoint_arg` 把 `args`/`argparse`/`sys.argv` 全替成注释;`te_spec_missing` 插 flag 成 SyntaxError;`port_conflict` 全局替数字误伤 batch/维度)。已改:Megatron CLI 类(te_spec/incompatible_ckpt)下调为**分类+诊断+转人工不动源码**;distributed/port 改**走 shell env var**(MASTER_ADDR/PORT);te_missing 加 once-guard(TE 是 meta 包需源码编译)。详见 [fixes/2026-06-16-f9-error-class-destructive-autofix-fix.md](superpowers/fixes/2026-06-16-f9-error-class-destructive-autofix-fix.md)。**CC 版同步只移植安全集,毁灭性 sed 绝不进 CC**。
 
 | 错误模式 | 分类 | 修复策略 |
 |---|---|---|

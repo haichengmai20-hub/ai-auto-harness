@@ -253,77 +253,86 @@ for ROUND in $(seq 1 20); do  # 硬上限 20 轮(防无限循环)
 
   # ---- 新增错误分类 (F9) ----
 
-  # Transformer Engine 缺失
+  # Transformer Engine 缺失 — 一次性尝试 pip,仍缺转人工(TE 是 meta 包需源码编译,不在 cron 里强行编)
   if echo "$RUN_OUTPUT" | grep -qiE "transformer.engine.*not available|Please install TE|transformer_engine.*not found|No module named.*transformer_engine"; then
     ERROR_CLASS="te_missing"
-    FIX="pip install transformer-engine[pytorch]"
-    echo "[run] Transformer Engine missing, installing" | tee -a "$LOG"
-    pip install "transformer-engine[pytorch]" 2>&1 | tee -a "$LOG"
+    if [ "${TE_INSTALL_TRIED:-0}" = "1" ]; then
+      SUGGESTED_FIX="transformer-engine 需源码编译 CUDA kernel(>10min,要匹配 toolkit): pip install --no-build-isolation 'transformer-engine[pytorch]' 或换预装 TE 的环境"
+      echo "[run] TE 一次安装后仍缺 → 转人工($SUGGESTED_FIX)" | tee -a "$LOG"
+      echo "$(date -Iseconds) round=$ROUND error=te_missing fix='to_human:$SUGGESTED_FIX'" >> "$FIXES_LOG"
+      NEEDS_HUMAN="te_missing"
+      break
+    fi
+    TE_INSTALL_TRIED=1
+    FIX="pip install transformer-engine[pytorch] (一次性尝试)"
+    echo "[run] Transformer Engine missing, 尝试安装一次" | tee -a "$LOG"
+    pip install "transformer-engine[pytorch]" 2>&1 | tail -20 | tee -a "$LOG"
     echo "$(date -Iseconds) round=$ROUND error=te_missing fix='$FIX'" >> "$FIXES_LOG"
     FIXES_APPLIED=$(echo "$FIXES_APPLIED" | python3 -c "import sys,json; a=json.loads(sys.stdin.read()); a.append('install_te'); print(json.dumps(a))")
     # 依赖缺失不计轮
     continue
   fi
 
-  # TE Spec Provider 不兼容 (需要 --transformer-impl local)
+  # TE Spec Provider 不兼容 — Megatron CLI 参数问题,非 python 源码可 sed 修 → 分类+诊断+转人工(不动文件)
   if echo "$RUN_OUTPUT" | grep -qiE "TESpecProvider.*not defined|transformer.impl.*not.*local|TE.*spec.*provider"; then
     ERROR_CLASS="te_spec_missing"
-    FIX="Add --transformer-impl local to entry_script args"
-    echo "[run] TE Spec Provider error, adding --transformer-impl local" | tee -a "$LOG"
-    # 在 entry_script 末尾追加参数
-    sed -i 's/\(transformer.*impl\)/--transformer-impl local /g' "$ENTRY_FILE" 2>/dev/null
-    echo "$(date -Iseconds) round=$ROUND error=te_spec_missing fix='$FIX'" >> "$FIXES_LOG"
-    FIXES_APPLIED=$(echo "$FIXES_APPLIED" | python3 -c "import sys,json; a=json.loads(sys.stdin.read()); a.append('te_impl_local'); print(json.dumps(a))")
-    REPAIR_ACTIONS=$((REPAIR_ACTIONS + 1))
-    continue
+    SUGGESTED_FIX="在 Megatron 启动命令处加 --transformer-impl local(本平台不盲 sed python 源码,需人工在启动参数层加)"
+    echo "[run] TE Spec Provider 错误 → 转人工(建议: $SUGGESTED_FIX)" | tee -a "$LOG"
+    echo "$(date -Iseconds) round=$ROUND error=te_spec_missing fix='classify_only:$SUGGESTED_FIX'" >> "$FIXES_LOG"
+    NEEDS_HUMAN="te_spec_missing"
+    break
   fi
 
-  # Checkpoint 参数不兼容 (--no-persist-layer-norm / --no-rope-fusion)
+  # Checkpoint 参数不兼容 — Megatron CLI flag,盲 sed python 源码会毁文件 → 分类+诊断+转人工(不动文件)
   if echo "$RUN_OUTPUT" | grep -qiE "persist_layer_norm.*not supported|rope_fusion.*not supported|use_te_.*not.*compatible|incompatible.*checkpoint.*arg"; then
     ERROR_CLASS="incompatible_checkpoint_arg"
-    FIX="Add compatibility flags: --no-persist-layer-norm --no-rope-fusion --transformer-impl local"
-    echo "[run] Checkpoint arg incompatibility, adding compatibility flags" | tee -a "$LOG"
-    # 在 entry_script 的命令行参数中追加
-    if ! grep -q "no-persist-layer-norm" "$ENTRY_FILE"; then
-      sed -i 's/\(args\|argparse\|sys.argv\)/# Added compatibility flags\n/g' "$ENTRY_FILE" 2>/dev/null
-    fi
-    echo "$(date -Iseconds) round=$ROUND error=incompatible_checkpoint_arg fix='$FIX'" >> "$FIXES_LOG"
-    FIXES_APPLIED=$(echo "$FIXES_APPLIED" | python3 -c "import sys,json; a=json.loads(sys.stdin.read()); a.append('compat_flags'); print(json.dumps(a))")
-    REPAIR_ACTIONS=$((REPAIR_ACTIONS + 1))
-    continue
+    SUGGESTED_FIX="在 Megatron 启动命令处加兼容 flag: --no-persist-layer-norm --no-rope-fusion --transformer-impl local(需人工在启动参数层加)"
+    echo "[run] Checkpoint 参数不兼容 → 转人工(建议: $SUGGESTED_FIX)" | tee -a "$LOG"
+    echo "$(date -Iseconds) round=$ROUND error=incompatible_checkpoint_arg fix='classify_only:$SUGGESTED_FIX'" >> "$FIXES_LOG"
+    NEEDS_HUMAN="incompatible_checkpoint_arg"
+    break
   fi
 
-  # 分布式环境缺失 (MASTER_ADDR / 分布式训练参数)
+  # 分布式环境缺失 — 用 shell 环境变量(被 timeout python3 子进程继承),不 prepend 源码(会破坏 shebang/__future__)
   if echo "$RUN_OUTPUT" | grep -qiE "MASTER_ADDR.*not set|MASTER_PORT.*not set|distributed.*not.*initialized|torch.distributed.*not.*init"; then
     ERROR_CLASS="distributed_env_missing"
-    FIX="Set MASTER_ADDR=127.0.0.1 MASTER_PORT=29500"
-    echo "[run] Distributed env missing, setting MASTER_ADDR/PORT" | tee -a "$LOG"
-    # 在 entry_script 开头插入环境变量
-    if ! grep -q "MASTER_ADDR" "$ENTRY_FILE"; then
-      printf 'import os\nos.environ.setdefault("MASTER_ADDR", "127.0.0.1")\nos.environ.setdefault("MASTER_PORT", "29500")\n' | cat - "$ENTRY_FILE" > /tmp/entry_tmp.py && mv /tmp/entry_tmp.py "$ENTRY_FILE"
+    if [ "${DIST_ENV_SET:-0}" = "1" ]; then
+      SUGGESTED_FIX="已设 MASTER_ADDR/PORT + RANK/WORLD_SIZE 仍失败,可能需 torchrun 启动 → 转人工"
+      echo "[run] 分布式环境已设仍失败 → 转人工" | tee -a "$LOG"
+      echo "$(date -Iseconds) round=$ROUND error=distributed_env_missing fix='to_human:$SUGGESTED_FIX'" >> "$FIXES_LOG"
+      NEEDS_HUMAN="distributed_env_missing"
+      break
     fi
+    DIST_ENV_SET=1
+    MASTER_PORT_PICK=$((29500 + RANDOM % 1000))
+    export MASTER_ADDR=127.0.0.1
+    export MASTER_PORT=$MASTER_PORT_PICK
+    export RANK=0 WORLD_SIZE=1 LOCAL_RANK=0
+    FIX="export MASTER_ADDR=127.0.0.1 MASTER_PORT=$MASTER_PORT_PICK RANK=0 WORLD_SIZE=1 LOCAL_RANK=0"
+    echo "[run] 分布式环境缺失 → 设 shell 环境变量(不改源码): $FIX" | tee -a "$LOG"
     echo "$(date -Iseconds) round=$ROUND error=distributed_env_missing fix='$FIX'" >> "$FIXES_LOG"
-    FIXES_APPLIED=$(echo "$FIXES_APPLIED" | python3 -c "import sys,json; a=json.loads(sys.stdin.read()); a.append('set_master_addr'); print(json.dumps(a))")
+    FIXES_APPLIED=$(echo "$FIXES_APPLIED" | python3 -c "import sys,json; a=json.loads(sys.stdin.read()); a.append('set_master_addr_env'); print(json.dumps(a))")
     REPAIR_ACTIONS=$((REPAIR_ACTIONS + 1))
     continue
   fi
 
-  # 端口冲突
+  # 端口冲突 — 换分布式端口用 env var,不 sed 源码(盲替换数字会误伤 batch_size/维度)
   if echo "$RUN_OUTPUT" | grep -qiE "Address already in use|port.*already.*in.*use|EADDRINUSE|bind.*failed.*port"; then
     ERROR_CLASS="port_conflict"
-    # 找到冲突的端口号
-    CONFLICT_PORT=$(echo "$RUN_OUTPUT" | grep -oE "port [0-9]+|:[0-9]+" | grep -oE "[0-9]+" | head -1)
-    if [ -n "$CONFLICT_PORT" ]; then
-      NEW_PORT=$((CONFLICT_PORT + 1000))
-      FIX="Change port $CONFLICT_PORT → $NEW_PORT"
-      echo "[run] Port conflict on $CONFLICT_PORT, changing to $NEW_PORT" | tee -a "$LOG"
-      sed -i "s/$CONFLICT_PORT/$NEW_PORT/g" "$ENTRY_FILE"
-    else
-      FIX="Port conflict detected but couldn't identify port number"
-      echo "[run] Port conflict detected but couldn't identify port" | tee -a "$LOG"
+    if [ "${PORT_RETRY:-0}" = "1" ]; then
+      SUGGESTED_FIX="换 MASTER_PORT 后仍冲突,端口可能写死在源码/config → 转人工"
+      echo "[run] 端口换后仍冲突 → 转人工" | tee -a "$LOG"
+      echo "$(date -Iseconds) round=$ROUND error=port_conflict fix='to_human:$SUGGESTED_FIX'" >> "$FIXES_LOG"
+      NEEDS_HUMAN="port_conflict"
+      break
     fi
+    PORT_RETRY=1
+    MASTER_PORT_PICK=$((20000 + RANDOM % 10000))
+    export MASTER_PORT=$MASTER_PORT_PICK
+    FIX="export MASTER_PORT=$MASTER_PORT_PICK (换分布式端口,不 sed 源码)"
+    echo "[run] 端口冲突 → 换 MASTER_PORT=$MASTER_PORT_PICK 重试" | tee -a "$LOG"
     echo "$(date -Iseconds) round=$ROUND error=port_conflict fix='$FIX'" >> "$FIXES_LOG"
-    FIXES_APPLIED=$(echo "$FIXES_APPLIED" | python3 -c "import sys,json; a=json.loads(sys.stdin.read()); a.append('port_change'); print(json.dumps(a))")
+    FIXES_APPLIED=$(echo "$FIXES_APPLIED" | python3 -c "import sys,json; a=json.loads(sys.stdin.read()); a.append('change_master_port'); print(json.dumps(a))")
     REPAIR_ACTIONS=$((REPAIR_ACTIONS + 1))
     continue
   fi
@@ -417,6 +426,9 @@ export R_FIXES_APPLIED="$FIXES_APPLIED"
 export R_ENTRY_SCRIPT="$ENTRY_SCRIPT"
 export R_START_TS="$START_TS"
 export R_SLUG="$SLUG"
+export R_NEEDS_HUMAN="${NEEDS_HUMAN:-}"
+export R_SUGGESTED_FIX="${SUGGESTED_FIX:-}"
+export R_ERROR_CLASS="${ERROR_CLASS:-}"
 
 python3 << 'PYEOF'
 import json, os, datetime
@@ -429,6 +441,9 @@ exec_fail_count = int(os.environ["R_EXEC_FAIL_COUNT"])
 fixes_applied = json.loads(os.environ["R_FIXES_APPLIED"])
 entry_script = os.environ["R_ENTRY_SCRIPT"]
 start_ts = int(os.environ["R_START_TS"])
+needs_human = os.environ.get("R_NEEDS_HUMAN", "").strip()
+suggested_fix = os.environ.get("R_SUGGESTED_FIX", "").strip()
+error_class = os.environ.get("R_ERROR_CLASS", "").strip()
 duration = int(datetime.datetime.now().timestamp()) - start_ts
 
 # 读日志尾部作为 sample_output
@@ -441,32 +456,43 @@ try:
 except Exception:
     pass
 
+# needs_human(不可自动修的分类,如 Megatron CLI flag)或 5 次执行失败 → 转人工
+paused_for_human = (not passed) and (exec_fail_count >= 5 or bool(needs_human))
+
 result = {
     "phase": "run-and-repair",
     "slug": os.environ["R_SLUG"],
-    "status": "done",
+    "status": "paused_for_human" if paused_for_human else "done",
     "duration_seconds": duration,
     "repair_rounds": repair_count,
     "exec_fail_count": exec_fail_count,
-    "errors_encountered": [],
+    "errors_encountered": [error_class] if error_class else [],
+    "error_class": error_class or None,
+    "suggested_fix": suggested_fix or None,
     "fixes_applied": fixes_applied,
     "inference_success": passed,
     "sample_output": sample_output,
     "entry_command": entry_script,
-    "paused_for_human": not passed and exec_fail_count >= 5,
+    "paused_for_human": paused_for_human,
     "blocked": False,
-    "notes": f"CPU fallback used: {fallback_cpu}" if fallback_cpu else ""
+    "notes": (f"CPU fallback used: {fallback_cpu}" if fallback_cpu else "")
+             + (f" | 需人工: {needs_human} — {suggested_fix}" if needs_human else "")
 }
 
 with open(os.path.join(workspace, "results", "run_and_repair.json"), "w") as f:
     json.dump(result, f, indent=2, ensure_ascii=False)
 
-# 更新 state
+# 更新 state — paused_for_human 时不推进到 verify、不把 run-and-repair 计入 phases_done
 with open(os.path.join(workspace, "state.json")) as f:
     state = json.load(f)
-state["phase"] = "verifying"
-state["phases_done"] = list(dict.fromkeys(state.get("phases_done", []) + ["run-and-repair"]))
-state["status"] = "done"
+if paused_for_human:
+    state["phase"] = "run-and-repair"
+    state["status"] = "paused_for_human"
+    state["resume_reason"] = f"run-and-repair {needs_human or 'exec_fail'}: {suggested_fix}".strip()
+else:
+    state["phase"] = "verifying"
+    state["status"] = "done"
+    state["phases_done"] = list(dict.fromkeys(state.get("phases_done", []) + ["run-and-repair"]))
 state["updated_at"] = datetime.datetime.now().isoformat()
 with open(os.path.join(workspace, "state.json"), "w") as f:
     json.dump(state, f, indent=2, ensure_ascii=False)
