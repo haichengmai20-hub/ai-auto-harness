@@ -55,8 +55,8 @@ CC `run-and-repair/SKILL.md` 缺：Q4(HF id→本地路径)、Q5(超时分级)�
 
 - [x] fix.md + SKILL 改动 + ChangeLog
 - [x] framework-issues-cc-complete.md §七 / 优先级表标 CC 已同步
-- [ ] commit + 回填 hash
+- [x] commit + 回填 hash
 
 ## 修复结果
 
-- **commit hash**: (待回填)
+- **commit hash**: `6aad610`
