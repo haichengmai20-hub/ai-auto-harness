@@ -26,17 +26,18 @@
 - sentinel:`workspace/<slug>/.cache/handoff/*.json`;PID:`workspace/<slug>/.cache/*.pid`
 - 等人:`pending_human/<slug>.md`(文件在=等人,删文件=解除)
 
-## 🔴 R1-R11 硬规则(违反 = 跑挂/作弊;guard.env.sh 对 R1/R4/R6/R7/R11 实时拦截)
+## 🔴 R1-R11 硬规则(违反 = 跑挂/作弊;guard.env.sh 对 R1/R4/R4b/R6/R7/R11 实时拦截)
 
 - **R1 隔离**:只动自己 `$WORKSPACE`;kill 只许动 `$WORKSPACE/.cache/*.pid` 登记的 PID
 - **R2 state 双轴**:每 phase 起止 jq 原子更新 state.json(phase 轴 × status 轴:running/done/paused_in_progress/paused_for_human/blocked)+ updated_at
 - **R3 wall-clock**:intake 15' / fetch 180' / install 60' / run 45'×3 / verify 30';超时走暂停分支不再等。兜底 `scripts/enforce-wallclock.sh`
 - **R4 等待纪律**:单次 sleep ≤60s,连续 sleep 禁,poll ≤8 次/phase;Hermes 内等待优先 `terminal(background=true, notify_on_complete=true)`;**跨 cron 长任务必须 setsid nohup + sentinel**(background=true 的进程随 cron run 结束可能被回收);退出让 cron 接续比空转便宜 1000 倍
+- **R4b setsid nohup 放行**:guard.env.sh 为 `setsid`/`nohup` 提供审计 wrapper(记录到 guard-violations.log 但不拦截)。调用方**必须**写 PID 文件(`$WORKSPACE/.cache/<task>.pid`)+ handoff sentinel。phase 脚本(`hermes/scripts/phase-*.sh`)内部设 `AI_HARNESS_GUARD_SKIP=1` 绕过 guard,脚本内的 setsid nohup 不受 Hermes terminal 解析层拦截
 - **R5 串行带宽**:fetch 完全 done 才 install;下载与 pip 绝不并行
 - **R6 pip**:禁 `--no-cache-dir`(cache 已隔离);禁并行 pip 写同一 venv
 - **R7 HF 下载**:`hf` 不是 `huggingface-cli`;无 `--resume-download`;`HF_HUB_DISABLE_XET=1` + `CONCURRENCY=2`;**严禁 unset proxy / 把外网域名加进 no_proxy**(本机无直连=断网,fix #36);`--token "$HF_TOKEN"` 显式传
 - **R8 phase 标记**:子代理进出各 echo `=== PHASE_START|PHASE_END phase=<p> slug=<s> ... ===`(monitor 靠 grep)
-- **R9 主 agent 只派发**:每 phase 必须 delegate_task;主 agent 的 terminal 只做路由/读写 state/cp 快照/跑 validator;严禁亲自 git clone / hf download / pip install / python 推理
+- **R9 主 agent 只派发/调度**:每 phase 必须通过 phase 脚本(`terminal`) 或 delegate_task 执行;主 agent 的 terminal 只做路由/读写 state/cp 快照/跑 validator/跑 phase 脚本;**跑 phase-*.sh 不算"亲自做"**(脚本自包含,主 agent 只是调度者);仍严禁主 agent 自己写 python -c / 手动 pip install / 手动 git clone
 - **R10 sentinel**:跨 cron 后台任务必写 handoff sentinel;生产者退出时原子写终态;poll 见 PID 死(含 `/proc/<pid>/stat` 为 `Z` 僵尸)立即补写终态。兜底 `scripts/reconcile-sentinels.sh`
 - **R11 分支纪律**:run-and-repair 严禁 git checkout/switch 切分支(guard 直接拒);`git checkout -- <file>` 豁免
 

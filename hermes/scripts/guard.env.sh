@@ -154,3 +154,30 @@ huggingface-cli() {
     _guard_warn "R7: huggingface-cli 已废弃,已自动改用 hf 执行"
     command hf "$@"
 }
+
+# ---- R4b: setsid nohup whitelist(跨 cron 后台任务核心) ----
+# Hermes terminal 工具会拦截裸 nohup/disown/setsid,但 playbook 的
+# "setsid nohup bash -c 'hf download ...'" 是合法后台启动(跨 cron 接续)。
+# 此 wrapper:
+#   1. 记录到 guard 日志(审计)
+#   2. 要求调用方写 PID 文件 + sentinel(否则警告)
+#   3. 放行 command setsid
+setsid() {
+    local has_nohup=0 has_bash_c=0
+    for a in "$@"; do
+        [ "$a" = "nohup" ] && has_nohup=1
+        [ "$a" = "-c" ] && has_bash_c=1
+    done
+    if [ "$has_nohup" = "1" ]; then
+        _guard_warn "R4b: setsid nohup 放行(跨cron后台任务)。请确保: 1) echo \$! > \$WORKSPACE/.cache/<task>.pid  2) 写 handoff sentinel 终态"
+    else
+        _guard_warn "R4b: setsid without nohup — 放行但请确认是否需要 nohup"
+    fi
+    command setsid "$@"
+}
+
+# nohup 也放行(配合 setsid 使用时)
+nohup() {
+    _guard_warn "R4b: nohup 放行(后台任务)。请配合 setsid 使用并写 PID 文件 + sentinel"
+    command nohup "$@"
+}

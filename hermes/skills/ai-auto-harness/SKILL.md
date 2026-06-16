@@ -56,7 +56,18 @@ find workspace -maxdepth 2 -name state.json -exec jq -c '{slug, phase, status, p
 
 **有 in_progress** → 选最早 `started_at` 的接续,**不挑新项目**,跳任务 3。
 
-**无 in_progress** → 调 MCP `scan_today`(ai_daily_scan server)拿 findings.jsonl,逐行解析后过滤+排序:
+**无 in_progress** → 读 findings.jsonl(不触发新扫描):
+```bash
+# 优先读当天已跑完的 scan 结果(09:00 cron 已产出)
+FINDINGS="/root/ai-daily-scan/state/findings.jsonl"
+if [ ! -s "$FINDINGS" ] || [ "$(find "$FINDINGS" -mmin +1440 2>/dev/null)" ]; then
+  # findings 不存在或 >24h — 触发 scan_today(async)等完成
+  # 但通常 09:00 scan 已跑完,这里只读
+  echo "⚠️ findings.jsonl 过旧或不存在,调用 MCP scan_today"
+fi
+cat "$FINDINGS" | jq -c 'select(.estimated_params_b != null)'
+```
+逐行解析后过滤+排序:
 - 过滤:`estimated_params_b ≤ 30`(超了走 api-skeleton 特例)/ 不在 `state/blacklist.jsonl` / `pending_human/<slug>.md` 不存在 / gated 需 HF_TOKEN / 30 天内 status=passed 的跳过
 - 排序:confidence=high 优先 → scenario_hits 多优先 → scan_ts 新优先
 - **选 1 个**(N=1 串行,不并行)
@@ -73,7 +84,17 @@ find workspace -maxdepth 2 -name state.json -exec jq -c '{slug, phase, status, p
 | `runbook_pending` | `write-deploy-runbook` | `cleanup_pending`(verify过)/ `done`(没过) |
 | `cleanup_pending` | `cleanup` | `archived` |
 
-**每个 phase 的派发模板**(🔴 关键参数必须显式写进 goal/context,禁止让子代理自拼路径 — fix 2026-06-08):
+**每个 phase 的派发方式(方案 A — 主 agent terminal 直跑)**:
+
+🔴 **核心变更(hojo-asr/paddleocr 试跑教训)**: install / run-and-repair 阶段的 delegate_task 子代理不可靠(600s硬上限+不守playbook)。改为**主 agent 用 terminal 直接跑 phase 脚本**,绕过 delegate_task。
+
+**有 phase 脚本的阶段(intake/fetch/install/run)** — 主 agent terminal 直跑:
+```bash
+# 全量输出到 log,terminal 只拿精简摘要(保护 context)
+terminal(command="bash hermes/scripts/phase-<phase>.sh <参数> >> workspace/<slug>/logs/<phase>.log 2>&1; echo '===LOG_TAIL==='; tail -30 workspace/<slug>/logs/<phase>.log; echo '===RESULT==='; cat workspace/<slug>/results/<phase>.json 2>/dev/null || echo 'NO_RESULT'", timeout=1800)
+```
+
+**无 phase 脚本的阶段(verify/write-deploy-runbook/cleanup)** — 仍用 delegate_task(playbook 模式,这些阶段短且需推理):
 
 ```
 delegate_task(
@@ -90,7 +111,7 @@ playbook 里的硬规则/返回 schema/反模式全部生效。
   workspace_path: /root/ai-auto-harness/workspace/<slug>
   run_id: <RUN_ID>
   run_dir: /root/ai-auto-harness/workspace/<slug>/runs/<RUN_ID>
-  <该 phase 的专属参数,见下表>
+  <该 phase 的专属参数>
 
 🔴 R 规则浓缩(子代理收不到 AGENTS.md,这里就是你的规则来源;详见 playbook):
 - R1 只动自己 workspace;kill 只许动 $WORKSPACE/.cache/*.pid 里登记的 PID
@@ -105,14 +126,10 @@ playbook 里的硬规则/返回 schema/反模式全部生效。
 )
 ```
 
-**每 phase 专属参数**:
+**每 phase 专属参数(playbook 模式)**:
 
 | phase | 额外传入 |
 |---|---|
-| intake | github_url, hf_repos, estimated_params_b, estimated_weight_size_gb, gated_repos, scenario_hits |
-| fetch-weights | hf_repos, gated_repos, dest_path_template=`$WORKSPACE/.cache/hf_models/$REPO`(嵌套 org/repo,禁自拼) |
-| install-env | entry_script, requirements_files(从 intake_result) |
-| run-and-repair | venv_path, entry_script, gpu_picks(从 install/intake result) |
 | verify | venv_path, entry_script(**不传 run_result — 独立判定原则**) |
 | write-deploy-runbook | verify_passed, verify_result 全文, github_url, force_status |
 | cleanup | verify_passed, runbook_path, dry_run=false, force_cleanup_incomplete=false |
@@ -122,6 +139,20 @@ playbook 里的硬规则/返回 schema/反模式全部生效。
 2. `cp workspace/<slug>/results/<phase>.json "$RUN_DIR/"`(快照)
 3. 检查暂停信号:`blocked` / `paused_for_human` → 跳任务 4;`paused_in_progress` → phase 不变,跳任务 4(报告写 in progress,下次 cron 接续)
 4. 正常完成 → jq 更新 state.json:`.phase = <下一个> | .phases_done += [<本phase>] | .<phase>_result = <result> | .updated_at = now`
+
+**🔴 delegate_task 超时处理(hojo-asr 试跑教训)**:
+如果 `delegate_task` 返回 timeout / 无 summary / 子代理被中断:
+```bash
+# 自动修 state(否则卡在 running)
+jq '.status = "paused_in_progress" | .updated_at = "'$(date -Iseconds)'"' workspace/<slug>/state.json > /tmp/state_tmp.json && mv /tmp/state_tmp.json workspace/<slug>/state.json
+```
+然后检查是否有后台进程(PID文件/sentinel):
+```bash
+bash scripts/check-bg-downloads.sh  # 看 WAITING/NEEDS_AGENT
+```
+- 有健康后台下载 → 报告标注"后台下载进行中",结束本次 run
+- 无后台进程 → 下次 cron 重新派发同 phase
+**绝对不要**因为超时就手动接管子代理的工作(R9 仍然生效)
 
 **runbook 后分支**:`verify_passed=true` → `cleanup_pending`;false → `done`(workspace 是失败现场,保留,**不跑 cleanup**)。
 
@@ -158,6 +189,21 @@ playbook 里的硬规则/返回 schema/反模式全部生效。
 - ❌ 忘了 cp results → $RUN_DIR 快照(审计断档)
 
 ## ChangeLog
+
+- **2026-06-15** — 方案A实测(paddleocr):
+  - 🟢 intake: delegate_task 462s 成功(新模板生效,子代理守规矩)
+  - 🟢 fetch-weights: 主agent terminal 直跑 2min(6权重,validate通过,LFS修复生效)
+  - 🟢 install-env: terminal background 121s 完成(~3KB context vs delegate_task 600s超时~500K tokens)
+  - 🟢 run-and-repair: entry_script 写.py文件修复(剥离python3 -c外壳)
+  - 🔴 PaddlePaddle CPU OneDNN bug,run失败(框架问题非harness)
+  - 📊 方案A context对比: terminal bg ~3KB vs delegate_task ~500K input tokens (167x 节省)
+  - 🔧 install脚本false→False修; run脚本entry_script→.py文件修 R4b: guard.env.sh 增加 setsid/nohup 审计 wrapper(不拦截,只记录),phase 脚本设 `AI_HARNESS_GUARD_SKIP=1` 绕过 guard+terminal解析层
+  - 🟢 delegate_task 超时后自动修 state(paused_in_progress),不再卡在 running
+  - 🟢 validate-fetch-weights.sh LFS 文件校验(HEAD Content-Length + >200 bytes 实测阈值)
+  - 🟢 install-env 脚本自动 torch 拆分(sm_12 nightly cu124)
+  - 🟢 intake 脚本 GPU 偏好感知(跳过GPU0-3 RL训练区,每卡最少6GB free)
+  - 🟢 scan_today 改为直接读 findings.jsonl,不触发新扫描
+  - 证据: docs/hermes-migration-gaps.md(待完善点清单)
 
 - **2026-06-12** — 初版:CC auto-daily 移植 Hermes(delegate_task 派发 + guard 替代 hook + preflight 注入)
   - 证据: docs/migration-to-hermes.md(方案)+ docs/superpowers/specs/ 同日 spec

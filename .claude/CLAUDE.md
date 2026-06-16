@@ -78,6 +78,13 @@
   - 动机: 用户要求 — 本机同时跑训练(RL/SFT 链),部署峰值(权重+venv+wheel 几十 GB)可能挤爆磁盘;free < 150GB 时 cron 不起新 run,已在后台的下载不受影响
   - 验证: ✅ 双端阈值拉到 9999 触发 DISK_GATE / 正常阈值放行
 
+- **2026-06-12** — 续跑假退出 fix #40:fetch-weights 后台下载免续跑
+  - 变更类型: 流程(效率优化)
+  - 影响范围: `cron/daily.sh`(续跑判断加 PID 存活检查);`fetch-weights/SKILL.md`(PID 活着时 1 turn 退出);`auto-daily/SKILL.md`(任务 1 加 bg_download_alive 跳过逻辑)
+  - 动机: khala 实战 4 次续跑全空转(80min/300+ API 调用只做"看一眼下载还在不在")。后台 hf download PID 活着时不需要 agent 守着,应免续跑、免消耗配额
+  - 证据: [fixes/2026-06-12-resume-fake-exit-fix.md](../docs/superpowers/fixes/2026-06-12-resume-fake-exit-fix.md);[specs/2026-06-11-cron-resume-and-optimization.md §7](../docs/superpowers/specs/2026-06-11-cron-resume-and-optimization.md)
+  - 验证: 🟡 spec 已写,代码待实现
+
 - **2026-06-11** — SCAIL 试跑三规则(P10/P11/P12)+ 审查更正编号与上限冲突
   - 变更类型: 规则(R3 轮次分类 / R4.6 poll 动态间隔 / R11 分支纪律)
   - 影响范围: R3 / R4.6(新) / R11(新) / 资源约束表修复轮上限行;同步下沉 run-and-repair/SKILL.md(S-1:SubAgent 收不到本文件);hook 加 R11 检测

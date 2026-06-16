@@ -1,14 +1,12 @@
 #!/bin/bash
 # AI Auto Harness — 每日 cron 入口(10:00 触发)
 #
-# 启动姿势完全对齐 launch_worker.sh:
-#   IS_SANDBOX=1 + --dangerously-skip-permissions + --output-format stream-json
-#   + --append-system-prompt(R1-R9 浓缩版)
-#   + PostToolUse hook 做 R1/R4 硬约束检测
-#   + worker.pid + trap cleanup 防僵尸进程
+# 支持 HERMES_MODE 环境变量切换引擎:
+#   HERMES_MODE=1 → 只跑 0-token 预检(preflight+reconcile+磁盘+bg-check),不启动 CC worker。
+#                     Hermes cron job 会在 preflight 完成后自行调度 agent。
+#   默认(不设)    → 跑完整 CC 版流程(preflight+reconcile+启动 claude-haha worker+续跑)。
 #
-# 不复用 launch_worker.sh 是因为 daily.sh 自己组装 prompt(auto-daily skill 触发),
-# 而 launch_worker.sh 是通用入口。两者维护时保持同步。
+# 两种模式共享 flock / 磁盘门槛 / bg-check / reconcile 三件套。
 set -e
 
 # ============ flock 防并发 ============
@@ -173,8 +171,17 @@ for wpid_file in worker_pids:
         continue
     if pid == os.getpid():
         continue
+    # 检测 PID 存活(含僵尸检测 — os.kill(pid,0) 对 Z 态误判活)
     try:
-        os.kill(pid, 0)
+        stat = pathlib.Path(f"/proc/{pid}/stat").read_text().split()[2]
+        if stat == "Z":  # 僵尸=死
+            pass  # fall through to cleanup
+        else:
+            continue  # 真活,跳过
+    except (FileNotFoundError, IndexError):
+        pass  # /proc 不存在=已死
+    try:
+        os.kill(pid, 0)  # 兜底
         continue
     except OSError:
         pass
@@ -183,6 +190,13 @@ for wpid_file in worker_pids:
         for pf in cache_dir.glob("*.pid"):
             try:
                 cpid = int(pf.read_text().strip())
+                # 僵尸检测
+                try:
+                    cstat = pathlib.Path(f"/proc/{cpid}/stat").read_text().split()[2]
+                    if cstat == "Z":
+                        continue  # 僵尸不用 SIGTERM,清理父进程即可
+                except (FileNotFoundError, IndexError):
+                    pass  # 已死
                 os.kill(cpid, 0)
                 os.kill(cpid, signal.SIGTERM)
                 cleaned.append(f"{wpid_file.parent.name}: SIGTERM {cpid}")
@@ -193,6 +207,18 @@ if cleaned:
         f.write(f"=== {time.strftime('%Y-%m-%dT%H:%M:%S')} daily.sh ===\n")
         for c in cleaned: f.write(c + "\n")
 PYEOF
+
+# ============ HERMES_MODE 分流 ============
+# HERMES_MODE=1 时:只跑 0-token 预检(上面已跑完 reconcile+僵尸清理),不启动 CC worker。
+# Hermes cron job 会在 preflight 输出后自行调度 agent,走 hermes/scripts/phase-*.sh。
+# 共享逻辑(flock/磁盘/bg-check/reconcile)已在上面跑完,不需要重复。
+if [ "${HERMES_MODE:-0}" = "1" ]; then
+    echo "[$(date -Iseconds)] HERMES_MODE=1: 0-token 预检完成,跳过 CC worker 启动" >> "$LOG_DIR/cleanup.log"
+    # 跑 Hermes 版 preflight.sh(输出状态摘要给后续 Hermes agent)
+    bash "$HARNESS_ROOT/hermes/scripts/harness-preflight.sh" >> "$LOG_DIR/hermes-preflight.log" 2>&1 || true
+    echo "[$(date -Iseconds)] Hermes preflight 完成,退出" >> "$LOG_DIR/cleanup.log"
+    exit 0
+fi
 
 # ============ trap cleanup ============
 WORKER_PID_FILE="$LOG_DIR/worker.pid"

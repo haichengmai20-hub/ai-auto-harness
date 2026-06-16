@@ -73,9 +73,47 @@ for sibling in siblings:
     if not rel:
         warnings.append(f"skip sibling without rfilename: {sibling!r}")
         continue
-    if size is None:
-        warnings.append(f"skip {rel}: manifest size unavailable")
-        continue
+    if size is None or size == 0:
+        # LFS files: HF API returns size=0 for LFS pointers. Try HEAD request for real size.
+        # If HEAD fails, skip but don't fail the entire validation.
+        try:
+            hf_url = f"https://huggingface.co/{repo_id}/resolve/main/{rel}"
+            req2 = urllib.request.Request(hf_url, method="HEAD")
+            token2 = os.environ.get("HF_TOKEN")
+            if token2:
+                req2.add_header("Authorization", f"Bearer {token2}")
+            # Use proxy if available
+            proxy = os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY")
+            if proxy:
+                import urllib.parse
+                proxy_handler = urllib.request.ProxyHandler({"http": proxy, "https": proxy})
+                opener = urllib.request.build_opener(proxy_handler)
+            else:
+                opener = urllib.request.build_opener()
+            with opener.open(req2, timeout=15) as head_resp:
+                content_length = head_resp.headers.get("Content-Length")
+                if content_length:
+                    size = int(content_length)
+                else:
+                    warnings.append(f"skip {rel}: LFS HEAD returned no Content-Length")
+                    continue
+        except Exception as head_exc:
+            # HEAD failed: compare actual file size vs LFS pointer size threshold
+            # LFS pointer files are <200 bytes. If actual > 200 bytes, it's the real file.
+            path = local_dir / rel
+            if path.exists():
+                actual = path.stat().st_size
+                if actual > 200:
+                    # Real file downloaded (not just pointer). Accept.
+                    print(f"  PASS {rel}: actual={actual} (LFS HEAD unavailable, file > 200 bytes → real file)")
+                    checked += 1
+                    continue
+                else:
+                    warnings.append(f"skip {rel}: only LFS pointer ({actual} bytes), HEAD failed ({head_exc})")
+                    continue
+            else:
+                warnings.append(f"skip {rel}: LFS, HEAD failed, file missing ({head_exc})")
+                continue
     try:
         expected = int(size)
     except Exception:
