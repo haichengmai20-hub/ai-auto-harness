@@ -18,6 +18,9 @@ export HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_CONCURRENCY=2
 echo "=== PHASE_START phase=install-env slug=$SLUG run_id=$RUN_ID ts=$(date -Iseconds) ===" >> "$LOG"
 
 # ---- state: running ----
+# R6 缓存隔离: 所有 HF 下载必须写到 workspace 内,不许写全局 /root/.cache/
+export HF_HOME="$WORKSPACE/.cache/huggingface" HF_HUB_CACHE="$WORKSPACE/.cache/hf_hub"
+
 jq '.phase = "installing" | .status = "running" | .updated_at = "'$(date -Iseconds)'"' "$WORKSPACE/state.json" > /tmp/state_tmp.json && mv /tmp/state_tmp.json "$WORKSPACE/state.json"
 
 FIXES_APPLIED="[]"

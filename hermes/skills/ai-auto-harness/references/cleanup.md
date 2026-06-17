@@ -46,7 +46,7 @@ done
 - `results/cleanup.json`(heredoc 求值):
 
 ```json
-{"skipped":false,"skipped_reason":null,"removed":["venv",".cache","repo"],
+{"slug":"$SLUG","skipped":false,"skipped_reason":null,"removed":["venv",".cache","repo"],
  "freed_bytes":0,"freed_human":"28.4GB","dry_run":false,"completed_at":"..."}
 ```
 

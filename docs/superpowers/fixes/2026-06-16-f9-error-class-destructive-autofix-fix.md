@@ -1,5 +1,14 @@
 # Fix: F9 错误分类自动修复会毁 entry_script 源码
 
+## 元信息
+
+- **Fix ID**: `2026-06-16-f9-error-class-destructive-autofix-fix`
+- **创建日期**: 2026-06-16
+- **级别**: P0
+- **状态**: ✅ 已闭环(Hermes版phase-run-and-repair.sh已移除3个毁文件sed,改用Python heredoc+环境变量)
+
+---
+
 **日期**: 2026-06-16
 **严重度**: P0（数据破坏：3/7 个新分类的自动修复会损坏被部署项目的 Python 入口文件）
 **触发**: 审查上一轮 `be54e47`(Q4/Q5/F9/F2/P3)实现时发现

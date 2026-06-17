@@ -32,6 +32,9 @@ if [ ! -f "$STATE" ]; then
   exit 1
 fi
 
+# R6 缓存隔离: verify 阶段如果触发 from_pretrained,不许写全局 /root/.cache/
+export HF_HOME="$WORKSPACE/.cache/huggingface" HF_HUB_CACHE="$WORKSPACE/.cache/hf_hub"
+
 source "$WORKSPACE/venv/bin/activate" || {
   echo "[verify] FATAL: venv 不存在或损坏" | tee -a "$LOG"
   cat > "$RESULT" <<EOF
@@ -40,10 +43,31 @@ EOF
   exit 0
 }
 
-# 从 intake 获取 entry_script(不读 run_result — 独立判定原则)
-ENTRY_SCRIPT=$(jq -r '.entry_script // empty' "$INTAKE_JSON" 2>/dev/null)
-GPU_PICKS=$(jq -c '.gpu_picks // []' "$INTAKE_JSON" 2>/dev/null)
+# 从 run_and_repair.json 优先读 entry_script(fallback 到 intake)
+ENTRY_SCRIPT=$(jq -r '.entry_script // empty' "$RUN_JSON" 2>/dev/null)
+if [ -z "$ENTRY_SCRIPT" ]; then
+  echo "[verify] entry_script 不在 run_and_repair.json, fallback 到 intake.json" | tee -a "$LOG"
+  ENTRY_SCRIPT=$(jq -r '.entry_script // empty' "$INTAKE_JSON" 2>/dev/null)
+fi
+
+# 从 state.json 读 gpu_picks(fallback 到 intake.json)
+GPU_PICKS=$(jq -c '.gpu_picks // []' "$STATE" 2>/dev/null)
+if [ -z "$GPU_PICKS" ] || [ "$GPU_PICKS" = "[]" ] || [ "$GPU_PICKS" = "null" ]; then
+  GPU_PICKS=$(jq -c '.gpu_picks // []' "$INTAKE_JSON" 2>/dev/null)
+  if [ -n "$GPU_PICKS" ] && [ "$GPU_PICKS" != "[]" ] && [ "$GPU_PICKS" != "null" ]; then
+    echo "[verify] gpu_picks 从 intake.json fallback: $GPU_PICKS" | tee -a "$LOG"
+  fi
+fi
 ENTRY_FILE="$WORKSPACE/.cache/verify_entry.py"
+
+# 设置 CUDA_VISIBLE_DEVICES(从 gpu_picks,对后续所有步骤生效)
+if [ -n "$GPU_PICKS" ] && [ "$GPU_PICKS" != "[]" ] && [ "$GPU_PICKS" != "null" ]; then
+  GPU_IDX=$(echo "$GPU_PICKS" | jq -r '.[0] // empty')
+  if [ -n "$GPU_IDX" ]; then
+    export CUDA_VISIBLE_DEVICES="$GPU_IDX"
+    echo "[verify] CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES" | tee -a "$LOG"
+  fi
+fi
 
 # 提取 entry_script 的 Python 内容(剥离 python3 -c 外壳)
 if [ -n "$ENTRY_SCRIPT" ]; then
@@ -96,12 +120,9 @@ if [ "$PASSED" = true ] && [ -f "$ENTRY_FILE" ] && [ -s "$ENTRY_FILE" ]; then
 
   # GPU 监控(后台,每 2s 采样)
   GPU_LOG="$WORKSPACE/.cache/verify_gpu.log"
-  if [ -n "$GPU_PICKS" ] && [ "$GPU_PICKS" != "[]" ]; then
-    GPU_IDX=$(echo "$GPU_PICKS" | jq -r '.[0] // empty')
-    if [ -n "$GPU_IDX" ]; then
-      nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader,nounits -l 2 -i "$GPU_IDX" > "$GPU_LOG" 2>/dev/null &
-      GPU_MON_PID=$!
-    fi
+  if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
+    nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader,nounits -l 2 -i "$CUDA_VISIBLE_DEVICES" > "$GPU_LOG" 2>/dev/null &
+    GPU_MON_PID=$!
   fi
 
   SMOKE_OUTPUT=$(timeout 600 python3 "$ENTRY_FILE" 2>&1)

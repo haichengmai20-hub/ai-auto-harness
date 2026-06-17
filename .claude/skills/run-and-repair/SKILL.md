@@ -378,25 +378,74 @@ if round_count == 3 and not passed:
 ## 返回前落盘 results JSON
 
 ```bash
-cat > "$WORKSPACE/results/run.json" <<JSON
-{
-  "passed": <true|false>,
-  "entry_type": "<script|service>",
-  "ready_achieved": <bool|null>,
-  "infer_succeeded": <bool|null>,
-  "backend_log_tail": "<service 时 backend.log 末 50 行;script 时 null>",
-  "error_class": <"CUDA_OOM" | "MODULE_MISSING" | "te_missing" | "te_spec_missing" | "incompatible_checkpoint_arg" | "distributed_env_missing" | "port_conflict" | "shell_config_corrupt" | "system_dep_missing" | ... | null>,
-  "suggested_fix": <"转人工时给的建议(如建议加哪些 Megatron flag);无则 null">,
-  "repair_count": <int>,
-  "stdout_tail": "<last 50 lines from $LOG>",
-  "gpu_snapshot": {...},
-  "fixes_applied": [...],
-  "post_conditions_met": {...},
-  "blocked": <bool>,
-  "paused_for_human": <bool>,
-  "completed_at": "$(date -Iseconds)"
+# 用 export + 单引号 heredoc(os.environ 读参),防止 bash 内插导致 null 泄漏/引号截断
+export V_PASSED="<true|false>"
+export V_ENTRY_TYPE="<script|service>"
+export V_READY_ACHIEVED="<bool|null>"
+export V_INFER_SUCCEEDED="<bool|null>"
+export V_BACKEND_LOG_TAIL="<service 时 backend.log 末 50 行;script 时 null>"
+export V_ERROR_CLASS="<CUDA_OOM|MODULE_MISSING|te_missing|te_spec_missing|incompatible_checkpoint_arg|distributed_env_missing|port_conflict|shell_config_corrupt|system_dep_missing|...|null>"
+export V_SUGGESTED_FIX="<转人工时给的建议;无则 null>"
+export V_REPAIR_COUNT="<int>"
+export V_STDOUT_TAIL="<last 50 lines from $LOG>"
+export V_GPU_SNAPSHOT="<json string>"
+export V_FIXES_APPLIED="<json array string>"
+export V_POST_CONDITIONS_MET="<json string>"
+export V_BLOCKED="<bool>"
+export V_PAUSED_FOR_HUMAN="<bool>"
+export V_TIMESTAMP="$(date -Iseconds)"
+
+python3 << 'PYEOF'
+import json, os
+
+def env(key, default=None):
+    val = os.environ.get(key, default)
+    if val is None:
+        return None
+    if val == "null" or val == "":
+        return None
+    if val == "true":
+        return True
+    if val == "false":
+        return False
+    return val
+
+passed = env("V_PASSED") == True
+entry_type = env("V_ENTRY_TYPE")
+ready_achieved = env("V_READY_ACHIEVED")
+infer_succeeded = env("V_INFER_SUCCEEDED")
+backend_log_tail = env("V_BACKEND_LOG_TAIL")
+error_class = env("V_ERROR_CLASS")
+suggested_fix = env("V_SUGGESTED_FIX")
+repair_count = int(env("V_REPAIR_COUNT") or 0)
+stdout_tail = env("V_STDOUT_TAIL")
+gpu_snapshot = json.loads(env("V_GPU_SNAPSHOT") or "{}")
+fixes_applied = json.loads(env("V_FIXES_APPLIED") or "[]")
+post_conditions_met = json.loads(env("V_POST_CONDITIONS_MET") or "{}")
+blocked = env("V_BLOCKED") == True
+paused_for_human = env("V_PAUSED_FOR_HUMAN") == True
+timestamp = env("V_TIMESTAMP")
+
+obj = {
+    "passed": passed,
+    "entry_type": entry_type,
+    "ready_achieved": ready_achieved,
+    "infer_succeeded": infer_succeeded,
+    "backend_log_tail": backend_log_tail,
+    "error_class": error_class,
+    "suggested_fix": suggested_fix,
+    "repair_count": repair_count,
+    "stdout_tail": stdout_tail,
+    "gpu_snapshot": gpu_snapshot,
+    "fixes_applied": fixes_applied,
+    "post_conditions_met": post_conditions_met,
+    "blocked": blocked,
+    "paused_for_human": paused_for_human,
+    "completed_at": timestamp
 }
-JSON
+with open(os.environ.get("WORKSPACE", ".") + "/results/run.json", "w") as f:
+    json.dump(obj, f, ensure_ascii=False, indent=2)
+PYEOF
 echo "==== run-and-repair end at $(date -Iseconds) ====" >> "$LOG"
 echo "=== PHASE_END   phase=run-and-repair slug=$SLUG status=done ts=$(date -Iseconds) ==="
 ```
@@ -450,8 +499,16 @@ echo "=== PHASE_END   phase=run-and-repair slug=$SLUG status=done ts=$(date -Ise
 - ❌ **service 路径 return 前没 stop** — backend 占 GPU 孤儿(ephemeral 铁律:成功/失败/超时都 stop)
 - ❌ **service 起不来就 paused_in_progress** — 决策 3 不留跨 cron 服务;超预算=stop+paused_for_human
 - ❌ **手 kill 服务进程不走 service-lifecycle.sh stop** — 漏 sentinel 标记,孤儿回收会误判
+- ❌ **用 `<<JSON`(无引号 heredoc)** — bash 变量内插导致 `null` 泄漏(Python 看到 `null` 不是 `None`,json.loads() 崩)和引号截断(`$FIXES_APPLIED` 含引号时截断)。必须用 `<<'PYEOF'`(单引号不插值)+ `export` 传参 + `os.environ` 读参 + `if val == "null": val = None`
 
 ## ChangeLog
+
+- **2026-06-17** — H1 heredoc null 泄漏修复:无引号 heredoc→单引号 + export/os.environ + null→None
+  - 变更类型: 模板(heredoc 写法)+ 反模式
+  - 影响范围: 返回前落盘 run.json heredoc 模板(从 `<<JSON` bash 内插改为 `<<'PYEOF'` python3 + export/os.environ + null→None 转换)/ 反模式段新增无引号 heredoc 禁令
+  - 动机: `<<JSON` 无引号 heredoc 让 bash 内插 `$FAILED_AT_VAL=null` → Python 看到 `null`(不是 `None`),`$FIXES_APPLIED` 含引号时截断,`json.loads()` 崩溃。Hermes 版已修,CC 版 SKILL.md 同步
+  - 证据: Hermes 版修法见 `hermes/scripts/phase-run.sh`;CC 版同步
+  - 验证: 模板 bash -n 合规;grep `<<JSON` 无残留
 
 - **2026-06-17** — F1+F4 service 分支:start/wait-ready/infer/必停(CC)
   - 变更类型: 流程+schema+反模式

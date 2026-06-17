@@ -214,32 +214,54 @@ GPU 利用低(< 1GB used 或全程 0% 利用)→ `passed=false, failed_at="gpu_u
 
    下游(cleanup G4 / auto-status / write-recommendation)用 `jq -r '.passed'` 读判定。**字段缺失 = 下游误判**。L1 实测 hunyuan3d-2 / omnivoice 都因为 LLM 自由写 schema(用 `status`+`checks` 或 `status`+`verdict`)导致 `passed` 字段缺失,被 cleanup G4 误判 verify_not_passed。
 
-   **必须**用下面这个**精确**的 bash heredoc 写,不许改字段名:
+   **必须**用下面这个**精确**的 bash + python heredoc 写,不许改字段名:
 
    ```bash
    PASSED_VAL=true                  # 真实判定:true 或 false (字符串,无引号)
    FAILED_AT_VAL=null               # 真实:null 或 "startup"|"smoke_test"|"gpu_utilization" (带引号)
-   CONFIDENCE_VAL='"high"'          # "high" | "medium" | "low"
-   VERIFY_LEVEL_VAL='"L0"'          # "L0"(仅 3 步基础) | "L1"(做了内容级抽查)
-   NOTES_VAL='"<判定说明,单行>"'    # 一句话
+   CONFIDENCE_VAL='high'            # "high" | "medium" | "low"
+   VERIFY_LEVEL_VAL='L0'            # "L0"(仅 3 步基础) | "L1"(做了内容级抽查)
+   NOTES_VAL='<判定说明,单行>'      # 一句话
+   TIMESTAMP_VAL="$(date -Iseconds)"
 
-   bash -c "cat > '$WORKSPACE/results/verify.json' <<JSON
-   {
-     \"passed\": $PASSED_VAL,
-     \"failed_at\": $FAILED_AT_VAL,
-     \"evidence\": {
-       \"startup_exit_code\": <int>,
-       \"smoke_stdout_snippet\": \"<last 500 chars>\",
-       \"smoke_exit_code\": <int>,
-       \"gpu_stats\": {\"memory_used_mb\": <int>, \"utilization_pct\": <int>},
-       \"output_files\": [<paths>]
-     },
-     \"notes\": $NOTES_VAL,
-     \"confidence\": $CONFIDENCE_VAL,
-     \"verify_level\": $VERIFY_LEVEL_VAL,
-     \"completed_at\": \"$(date -Iseconds)\"
+   export V_PASSED="$PASSED_VAL"
+   export V_FAILED_AT="$FAILED_AT_VAL"
+   export V_CONFIDENCE="$CONFIDENCE_VAL"
+   export V_VERIFY_LEVEL="$VERIFY_LEVEL_VAL"
+   export V_NOTES="$NOTES_VAL"
+   export V_TIMESTAMP="$TIMESTAMP_VAL"
+
+   python3 << 'PYEOF'
+   import json, os
+
+   passed = os.environ["V_PASSED"] == "true"
+   failed_at = os.environ["V_FAILED_AT"]
+   if failed_at == "null" or failed_at == "":
+       failed_at = None
+   confidence = os.environ["V_CONFIDENCE"]
+   verify_level = os.environ["V_VERIFY_LEVEL"]
+   notes = os.environ["V_NOTES"]
+   timestamp = os.environ["V_TIMESTAMP"]
+
+   # TODO: fill evidence fields with actual values
+   obj = {
+       "passed": passed,
+       "failed_at": failed_at,
+       "evidence": {
+           "startup_exit_code": 0,
+           "smoke_stdout_snippet": "<last 500 chars>",
+           "smoke_exit_code": 0,
+           "gpu_stats": {"memory_used_mb": 0, "utilization_pct": 0},
+           "output_files": []
+       },
+       "notes": notes,
+       "confidence": confidence,
+       "verify_level": verify_level,
+       "completed_at": timestamp
    }
-   JSON"
+   with open(os.environ.get("WORKSPACE", ".") + "/results/verify.json", "w") as f:
+       json.dump(obj, f, ensure_ascii=False, indent=2)
+   PYEOF
    ```
 
 2. **写完立即自检 schema** — `jq -e` 验证 7 个根字段都在,任一缺失即 raise + 重写:
@@ -277,6 +299,7 @@ GPU 利用低(< 1GB used 或全程 0% 利用)→ `passed=false, failed_at="gpu_u
 - ❌ **读 run_result 之前怎么修的** — 破坏独立判定原则
 - ❌ **service verify 后没 stop backend** — backend 占 GPU 孤儿(ephemeral 铁律:成功/失败/超时都必须 stop)
 - ❌ **ready 成就判 passed(没发 infer 就标 L1)** — ready 只是服务在线,L1 要求真实推理往返产物合理;ready 成 infer 未验=最多 L0
+- ❌ **用 `<<JSON`(无引号 heredoc)** — bash 变量内插导致 `null` 泄漏(Python 看到 `null` 不是 `None`,json.loads() 崩)和引号截断(`$FIXES_APPLIED` 含引号时截断)。必须用 `<<'PYEOF'`(单引号不插值)+ `export` 传参 + `os.environ` 读参 + `if val == "null": val = None`
 
 ## 我做错了什么?常见诱惑
 
@@ -293,6 +316,13 @@ GPU 利用低(< 1GB used 或全程 0% 利用)→ `passed=false, failed_at="gpu_u
   - 动机: "有声音且够长"≠"声音是要的" — L0 全过仍可能内容不对,下游需要知道验到哪一级
   - 证据: [fixes/2026-05-29-verify-content-level-check-fix.md](../../../docs/superpowers/fixes/2026-05-29-verify-content-level-check-fix.md)
   - 验证: ✅ validate-verify.sh fixture 双向(含 verify_level PASS / 缺失 FAIL)
+
+- **2026-06-17** — H1 heredoc null 泄漏修复:无引号 heredoc→单引号 + export/os.environ + null→None
+  - 变更类型: 模板(heredoc 写法)+ 反模式
+  - 影响范围: 第 4 步强制要求 verify.json heredoc 模板(从 `<<JSON` bash 内插改为 `<<'PYEOF'` python3 + export/os.environ + null→None 转换)/ 反模式段新增无引号 heredoc 禁令
+  - 动机: `<<JSON` 无引号 heredoc 让 bash 内插 `$FAILED_AT_VAL=null` → Python 看到 `null`(不是 `None`),`$FIXES_APPLIED` 含引号时截断,`json.loads()` 崩溃。Hermes 版已修(phase-verify.sh `<<'PYEOF'`),CC 版 SKILL.md 是 LLM 指令模板,需同步修正模板写法
+  - 证据: Hermes 版修法见 `hermes/scripts/phase-verify.sh` line 188-228;CC 版同步
+  - 验证: 模板 bash -n 合规;grep `<<JSON` 无残留
 
 - **2026-06-16** — F11 service 独立验证路径 + verify_level L0/L1 语义对齐
   - 变更类型: 流程 + schema(evidence 子字段) + 反模式

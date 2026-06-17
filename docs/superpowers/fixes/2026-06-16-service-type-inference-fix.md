@@ -1,5 +1,14 @@
 # Fix: 服务型推理支持(entry_type=service)
 
+## 元信息
+
+- **Fix ID**: `2026-06-16-service-type-inference-fix`
+- **创建日期**: 2026-06-16
+- **级别**: P0
+- **状态**: 🟡 部分落地(设计+SKILL.md已完成,实战验证待做)
+
+---
+
 **日期**: 2026-06-16
 **严重度**: P0(最大架构缺口,服务型项目全挂)
 **触发**: khala/vLLM/Gradio/Flask 类项目跑不通(只认 python3 script.py)

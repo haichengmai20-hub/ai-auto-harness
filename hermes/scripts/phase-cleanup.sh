@@ -26,7 +26,7 @@ echo "=== PHASE_START phase=cleanup slug=$SLUG run_id=$RUN_ID ts=$(date -Isecond
 if [[ "$WORKSPACE" != /root/ai-auto-harness/workspace/* ]] || [[ "$WORKSPACE" != *"$SLUG"* ]]; then
   echo "[cleanup] G1 REFUSED: 路径不合法 $WORKSPACE" | tee -a "$LOG"
   cat > "$RESULT" <<JSON
-{"skipped":true,"skipped_reason":"G1_path_prefix_refused","removed":[],"freed_bytes":0,"freed_human":"0B","dry_run":$DRY_RUN,"completed_at":"$(date -Iseconds)","duration_seconds":0}
+{"slug":"$SLUG","skipped":true,"skipped_reason":"G1_path_prefix_refused","removed":[],"freed_bytes":0,"freed_human":"0B","dry_run":$DRY_RUN,"completed_at":"$(date -Iseconds)","duration_seconds":0}
 JSON
   exit 0
 fi
@@ -34,39 +34,64 @@ fi
 # ---- G2 trace 完整 ----
 RUN_DIR="$WORKSPACE/runs/$RUN_ID"
 TRACE_OK=true
+STATE_STATUS=$(jq -r '.status // ""' "$STATE" 2>/dev/null)
+
+# 先数已有的阶段结果
+FOUND_PHASES=0
+for phase_file in intake.json fetch.json install.json run_and_repair.json verify.json; do
+  [ -f "$WORKSPACE/results/$phase_file" ] && FOUND_PHASES=$((FOUND_PHASES+1))
+done
+
+# 确定 trace 最低要求
+TRACE_MINIMUM=5  # 默认要求 5 阶段全齐
+if [ "$STATE_STATUS" = "archived" ] || [ "$STATE_STATUS" = "done" ]; then
+  TRACE_MINIMUM=1  # archived/done 只要求有 intake
+fi
+if [ "$FORCE_INCOMPLETE" = "true" ] && [ "$FOUND_PHASES" -ge 3 ]; then
+  TRACE_MINIMUM=3  # force 模式下 3 阶段也可清
+fi
+
 if [ ! -d "$RUN_DIR" ] || [ ! -f "$RUN_DIR/meta.json" ]; then
-  # Hermes 下 trace 在 Hermes DB,检查 results/ 五阶段 json 齐全替代
-  # 文件名映射: phase名 → 实际文件名
-  for phase_file in intake.json fetch.json install.json run_and_repair.json verify.json; do
-    [ -f "$WORKSPACE/results/$phase_file" ] || TRACE_OK=false
-  done
+  if [ "$FOUND_PHASES" -lt "$TRACE_MINIMUM" ]; then
+    TRACE_OK=false
+  fi
 fi
 if [ "$TRACE_OK" = false ]; then
   echo "[cleanup] G2 REFUSED: trace 不完整" | tee -a "$LOG"
   # 写 pending_human
   echo "trace 不完整,无法安全清理" > "/root/ai-auto-harness/pending_human/${SLUG}.md" 2>/dev/null || true
   cat > "$RESULT" <<JSON
-{"skipped":true,"skipped_reason":"G2_trace_incomplete","removed":[],"freed_bytes":0,"freed_human":"0B","dry_run":$DRY_RUN,"completed_at":"$(date -Iseconds)","duration_seconds":0}
+{"slug":"$SLUG","skipped":true,"skipped_reason":"G2_trace_incomplete","removed":[],"freed_bytes":0,"freed_human":"0B","dry_run":$DRY_RUN,"completed_at":"$(date -Iseconds)","duration_seconds":0}
 JSON
   exit 0
 fi
 
 # ---- G3 runbook 已写 ----
 RUNBOOK_PATH=$(jq -r '.runbook_path // empty' "$STATE" 2>/dev/null)
-if [ -z "$RUNBOOK_PATH" ] || [ ! -f "$RUNBOOK_PATH" ] || [ "$(wc -c < "$RUNBOOK_PATH" 2>/dev/null)" -lt 1024 ]; then
+# archived/done 项目放宽: runbook 缺失不阻塞清理
+# force 模式下 paused 项目也允许跳过 runbook
+SKIP_RUNBOOK=false
+if [ "$STATE_STATUS" = "archived" ] || [ "$STATE_STATUS" = "done" ]; then
+  SKIP_RUNBOOK=true
+elif [ "$FORCE_INCOMPLETE" = "true" ]; then
+  SKIP_RUNBOOK=true
+fi
+if { [ -z "$RUNBOOK_PATH" ] || [ ! -f "$RUNBOOK_PATH" ] || [ "$(wc -c < "$RUNBOOK_PATH" 2>/dev/null)" -lt 1024 ]; } && [ "$SKIP_RUNBOOK" != "true" ]; then
   echo "[cleanup] G3 REFUSED: runbook 未写或过小" | tee -a "$LOG"
   cat > "$RESULT" <<JSON
-{"skipped":true,"skipped_reason":"G3_runbook_missing","removed":[],"freed_bytes":0,"freed_human":"0B","dry_run":$DRY_RUN,"completed_at":"$(date -Iseconds)","duration_seconds":0}
+{"slug":"$SLUG","skipped":true,"skipped_reason":"G3_runbook_missing","removed":[],"freed_bytes":0,"freed_human":"0B","dry_run":$DRY_RUN,"completed_at":"$(date -Iseconds)","duration_seconds":0}
 JSON
   exit 0
 fi
 
 # ---- G4 verify 通过 ----
 VERIFY_PASSED=$(jq -r '.passed // false' "$WORKSPACE/results/verify.json" 2>/dev/null)
-if [ "$VERIFY_PASSED" != "true" ] && [ "$FORCE_INCOMPLETE" != "true" ]; then
-  echo "[cleanup] G4 REFUSED: verify 未通过且未 force" | tee -a "$LOG"
+# 如果 state 已 archived/done,允许强制清理(即使 verify 未通过)
+STATE_STATUS=$(jq -r '.status // ""' "$STATE" 2>/dev/null)
+if [ "$VERIFY_PASSED" != "true" ] && [ "$FORCE_INCOMPLETE" != "true" ] && [ "$STATE_STATUS" != "archived" ] && [ "$STATE_STATUS" != "done" ]; then
+  echo "[cleanup] G4 REFUSED: verify 未通过且未 force, state=$STATE_STATUS" | tee -a "$LOG"
   cat > "$RESULT" <<JSON
-{"skipped":true,"skipped_reason":"G4_verify_failed","removed":[],"freed_bytes":0,"freed_human":"0B","dry_run":$DRY_RUN,"completed_at":"$(date -Iseconds)","duration_seconds":0}
+{"slug":"$SLUG","skipped":true,"skipped_reason":"G4_verify_failed","removed":[],"freed_bytes":0,"freed_human":"0B","dry_run":$DRY_RUN,"completed_at":"$(date -Iseconds)","duration_seconds":0}
 JSON
   exit 0
 fi
@@ -92,13 +117,19 @@ for target in "${TARGETS[@]}"; do
   fi
 done
 
-# ---- 保留审计 ----
-echo "[cleanup] 验证保留文件..." | tee -a "$LOG"
+# ---- 保留审计 + 删除验证 ----
+echo "[cleanup] 验证保留文件... + 检查漏删..." | tee -a "$LOG"
 MISSED=()
 for must_exist in state.json results logs; do
   if [ ! -e "$WORKSPACE/$must_exist" ]; then
     MISSED+=("$must_exist")
     echo "[cleanup] ⚠️ 保留项缺失: $must_exist" | tee -a "$LOG"
+  fi
+done
+# 检查白名单项是否真的被删了(防止 rm 失败静默漏过)
+for target in "${TARGETS[@]}"; do
+  if [ -d "$WORKSPACE/$target" ] && [ "$DRY_RUN" != "true" ]; then
+    echo "[cleanup] ⚠️ 白名单项仍存在: $target ($(du -sh "$WORKSPACE/$target" 2>/dev/null | awk '{print $1}'))" | tee -a "$LOG"
   fi
 done
 
@@ -109,6 +140,7 @@ REMOVED_JSON=$(printf '%s\n' "${REMOVED[@]}" | jq -R . | jq -s .)
 
 cat > "$RESULT" <<JSON
 {
+  "slug": "$SLUG",
   "skipped": false,
   "skipped_reason": null,
   "removed": $REMOVED_JSON,

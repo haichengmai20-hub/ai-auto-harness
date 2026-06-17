@@ -124,17 +124,19 @@
 
 ### Fix 索引(架构改善事实链)
 
-> 完整 fix 目录见 [fixes/README.md](../fixes/README.md)（共 44 条）。每条 fix 含部署项目 + run_id 来源,可精确追溯。
+> 完整 fix 目录见 [fixes/README.md](../fixes/README.md)（共 47 条）。每条 fix 含部署项目 + run_id 来源,可精确追溯。
 > 注:2026-05-29 一批 fix(#15–#25)见 fixes/README.md,本表只列里程碑级;2026-06-02 ControlFoley e2e retro 4 条已补入下表顶部。
 
 | 日期 | Fix | 部署项目 | 影响 | commit | 状态 |
 |---|---|---|---|---|---|
+| 2026-06-17 | [r6-global-cache-leak-fix](../fixes/2026-06-17-r6-global-cache-leak-fix.md) **P1** | qwen3-tts | install-env/verify 未设 HF_HOME,from_pretrained 写全局 /root/.cache/ (R6 违规);已修+清 2.4G 残留 | N/A | ✅ 已闭环 |
+| 2026-06-17 | [cleanup-guards-too-strict-fix](../fixes/2026-06-17-cleanup-guards-too-strict-fix.md) **P1** | audiox-turbo+qwen3-tts+omnivoice | G2/G3/G4 门对 archived/force 项目太死,56G 残留无法回收;已放宽+重跑清场 | N/A | ✅ 已闭环 |
 | 2026-06-11 | [p1-p12-implementation-corrections-fix](../fixes/2026-06-11-p1-p12-implementation-corrections-fix.md) **P1** | scail | SCAIL 批次审查:4 真 bug(重试 env 不传播/对账路径错/优先级/glob)+ 续跑误杀大项目 + R4.1/R4.2 撞号→R4.6/R11 + P10-P12 下沉 run-and-repair SKILL | `cda7d9e` | ✅ 已闭环 |
 | 2026-06-10 | [claude-md-slimming-fix](../fixes/2026-06-10-claude-md-slimming-fix.md) | N/A 平台 | CLAUDE.md 23KB→7KB 结论版,详解外迁 specs/2026-06-10-r-rules-reference.md,规则零删减 | `8159339` | ✅ 已闭环 |
 | 2026-06-10 | [external-review-sentinel-wallclock-runs-fix](../fixes/2026-06-10-external-review-sentinel-wallclock-runs-fix.md) **P0** | scail + magenta | sentinel 假 running 对账脚本 + R3 wall-clock 代码兜底 + runs 保守清理 + 5 小补丁(外部 review 20 条裁决表见 fix 文档) | `2dca1df` | ✅ 已闭环 |
 | 2026-06-10 | [no-proxy-pollution-gated-403-fix](../fixes/2026-06-10-no-proxy-pollution-gated-403-fix.md) **P0** | eagle | `.env` no_proxy 含 huggingface.co → fetch 全断网;删 SKILL 过时绕代理规则;gated 403 分类(preflight+fetch) | `f4c4355` | ✅ 已闭环 |
-| 2026-06-03 | [fetch-weights-no-download-integrity-check-fix](../fixes/2026-06-03-fetch-weights-no-download-integrity-check-fix.md) | controlfoley | 下载后无完整性校验 + Xet 卡死无 fallback（committed 回归测试复现 469-vs-2.2GB，待真实 GPU e2e） | N/A | 🟡 部分落地 |
-| 2026-06-03 | [r9-task-dispatch-still-bypassed-fix](../fixes/2026-06-03-r9-task-dispatch-still-bypassed-fix.md) | controlfoley + toonflow-app | R9 仍被绕过(5/5 项目,bash=77/task=0),S-1 根因确认 | N/A | 🟡 部分落地 |
+| 2026-06-03 | [fetch-weights-no-download-integrity-check-fix](../fixes/2026-06-03-fetch-weights-no-download-integrity-check-fix.md) | controlfoley | 下载后无完整性校验 + Xet 卡死无 fallback;Hermes版:HF API校验+.incomplete检测 | N/A | ✅ 已闭环 |
+| 2026-06-03 | [r9-task-dispatch-still-bypassed-fix](../fixes/2026-06-03-r9-task-dispatch-still-bypassed-fix.md) | controlfoley + toonflow-app | R9 仍被绕过;Hermes迁移天然解决(phase脚本直跑) | N/A | ✅ 已闭环 |
 | 2026-06-03 | [scan-to-deploy-never-e2e-verified-fix](../fixes/2026-06-03-scan-to-deploy-never-e2e-verified-fix.md) | toonflow-app | scan→deploy 全链路 e2e 验证通过(MCP scan_today + record_outcome) | N/A | ✅ 已闭环 |
 | 2026-06-03 | [cleanup-no-real-cleanup-and-state-mismatch-fix](../fixes/2026-06-03-cleanup-no-real-cleanup-and-state-mismatch-fix.md) | controlfoley + toonflow-app | cleanup 只做 dry_run + state 终态非 archived（toonflow-app e2e 真清 1.68GB + archived） | N/A | ✅ 已闭环 |
 | 2026-06-02 | [hook-runid-clobber-fix](../fixes/2026-06-02-hook-runid-clobber-fix.md) **P0** | controlfoley | SessionStart 覆盖 run-id → hook 写孤儿目录(R1/R4/R6/R9 失效真因)+ `validate-run-discipline.sh` | `3bb1280` | ✅ 已闭环 |

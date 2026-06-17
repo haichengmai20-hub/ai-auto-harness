@@ -56,10 +56,14 @@ with open('$WORKSPACE/results/intake.json', 'w') as f: json.dump(result, f, inde
     echo "INTAKE_RESULT: BLOCKED git_clone_failed"
     exit 0
   fi
+  # Fix5: git submodule 初始化
+  echo "[intake] Initializing git submodules..." >> "$LOG"
+  (cd "$WORKSPACE/repo" && git submodule update --init --recursive 2>&1 | head -20 >> "$LOG" || true)
 fi
 
-# ---- 4. 推断 entry_script ----
+# ---- 4. 推断 entry_script + entry_type ----
 ENTRY_SCRIPT=""
+ENTRY_TYPE="script"  # script/gradio/service/docker
 PYTHON_VERSION="3.10"
 PYTHON_CONFIDENCE="high"
 
@@ -72,13 +76,46 @@ if [ -f "$WORKSPACE/repo/pyproject.toml" ]; then
   fi
 fi
 
-# 查找 entry script
-for candidate in "inference.py" "demo.py" "app.py" "run.py" "main.py" "predict.py"; do
+# 辅助函数: 检测文件是否为 Gradio/Streamlit Web UI
+is_gradio_file() {
+  local f="$1"
+  # 检查文件内容是否含 Gradio/Streamlit 标记
+  grep -lE "import gradio|from gradio|gr\.Interface|gr\.Blocks|Gradio Demo|import streamlit|st\." "$f" 2>/dev/null | grep -q .
+}
+
+# 查找 entry script — 跳过 Gradio/Streamlit Web UI 文件
+for candidate in "inference.py" "run_inference.py" "generate.py" "predict.py" "demo.py" "app.py" "run.py" "main.py"; do
   if find "$WORKSPACE/repo" -name "$candidate" -type f 2>/dev/null | head -1 | grep -q .; then
-    ENTRY_SCRIPT=$(find "$WORKSPACE/repo" -name "$candidate" -type f 2>/dev/null | head -1 | sed "s|$WORKSPACE/repo/||")
+    CANDIDATE_PATH=$(find "$WORKSPACE/repo" -name "$candidate" -type f 2>/dev/null | head -1)
+    if is_gradio_file "$CANDIDATE_PATH"; then
+      echo "[intake] $candidate 是 Gradio/Streamlit Web UI,跳过" >> "$LOG"
+      # 如果还没找到非 Gradio 入口,记录这个以备 fallback
+      if [ -z "$ENTRY_SCRIPT" ]; then
+        GRADIO_FALLBACK=$(echo "$CANDIDATE_PATH" | sed "s|$WORKSPACE/repo/||")
+      fi
+      continue
+    fi
+    ENTRY_SCRIPT=$(echo "$CANDIDATE_PATH" | sed "s|$WORKSPACE/repo/||")
+    echo "[intake] entry_script=$ENTRY_SCRIPT (type=script)" >> "$LOG"
     break
   fi
 done
+
+# 如果所有候选都是 Gradio,使用 fallback 并标记 entry_type=gradio
+if [ -z "$ENTRY_SCRIPT" ] && [ -n "$GRADIO_FALLBACK" ]; then
+  ENTRY_SCRIPT="$GRADIO_FALLBACK"
+  ENTRY_TYPE="gradio"
+  echo "[intake] 所有候选都是 Gradio/Streamlit UI,使用 fallback=$ENTRY_SCRIPT (type=gradio)" >> "$LOG"
+fi
+
+# 检查 PyPI 包项目(没有 repo 入口,需手写推理脚本)
+if [ -z "$ENTRY_SCRIPT" ] && [ -f "$WORKSPACE/repo/pyproject.toml" ]; then
+  PKG_NAME=$(grep -m1 "^name" "$WORKSPACE/repo/pyproject.toml" 2>/dev/null | sed 's/.*=.*"\(.*\)".*/\1/' | head -1)
+  if [ -n "$PKG_NAME" ]; then
+    ENTRY_TYPE="pypi_package"
+    echo "[intake] PyPI 包项目(pkg=$PKG_NAME),需手写推理脚本 (type=pypi_package)" >> "$LOG"
+  fi
+fi
 
 # 检查 setup.py console_scripts
 if [ -z "$ENTRY_SCRIPT" ] && [ -f "$WORKSPACE/repo/setup.py" ]; then
@@ -91,6 +128,13 @@ fi
 # 检查 README quickstart
 if [ -z "$ENTRY_SCRIPT" ] && [ -f "$WORKSPACE/repo/README.md" ]; then
   ENTRY_SCRIPT=$(grep -oE "python[3]? .+\.py" "$WORKSPACE/repo/README.md" 2>/dev/null | head -1 | sed 's/python[3]* //')
+  # 检查 quickstart 找到的文件是否也是 Gradio
+  if [ -n "$ENTRY_SCRIPT" ] && [ -f "$WORKSPACE/repo/$ENTRY_SCRIPT" ]; then
+    if is_gradio_file "$WORKSPACE/repo/$ENTRY_SCRIPT"; then
+      echo "[intake] README quickstart $ENTRY_SCRIPT 也是 Gradio,标记 type=gradio" >> "$LOG"
+      ENTRY_TYPE="gradio"
+    fi
+  fi
 fi
 
 # ---- 4b. 扫描测试数据文件(供 entry_script 使用) ----
@@ -110,18 +154,173 @@ HF_DEPS_JSON="[]"
 WEIGHT_PATHS_JSON="[]"
 
 # 扫描代码中的 HF 引用
+export REPO_DIR="$WORKSPACE/repo"
 HF_REFS=$(grep -rn "from_pretrained\|hf_hub_download\|snapshot_download" "$WORKSPACE/repo/" --include="*.py" 2>/dev/null | head -20)
 echo "HF refs found: $HF_REFS" >> "$LOG"
 
 # 从传入的 hf_repos 构建 weight_target_paths
+# F14: 最小可验证子集 — 多变体项目(如 Qwen3-TTS 6 个 repo)不需全下
+# 筛选策略: 优先选最大变体 + Tokenizer/Codec 必需 + 跳过 Base/fine-tune-only 变体
 if [ "$HF_REPOS" != "[]" ]; then
-  WEIGHT_PATHS_JSON=$(echo "$HF_REPOS" | python3 -c "
+  FILTERED_REPOS=$(echo "$HF_REPOS" | python3 << 'PYEOF'
+import sys, json, re
+
+repos = json.loads(sys.stdin.read())
+if len(repos) <= 2:
+    # 1-2 个 repo,全下(没必要筛选)
+    print(json.dumps(repos))
+    sys.exit(0)
+
+# 多 repo 筛选逻辑
+essential = []  # 必需: Tokenizer/Codec/Vocoder
+main_models = []  # 主模型: CustomVoice/VoiceDesign 等(功能最全)
+base_models = []  # 基础: Base 模型(fine-tune 用,推理不需要)
+others = []
+
+for r in repos:
+    name = r.split("/")[-1] if "/" in r else r
+    lower = name.lower()
+    
+    # Tokenizer/Codec/Vocoder — 必需依赖
+    if any(kw in lower for kw in ["tokenizer", "codec", "vocoder", "processor", "config"]):
+        essential.append(r)
+    # Base 模型 — fine-tune 用,推理验证不需要
+    elif "base" in lower and "custom" not in lower and "instruct" not in lower:
+        base_models.append(r)
+    # CustomVoice/VoiceDesign/Instruct — 功能最全变体
+    elif any(kw in lower for kw in ["custom", "voice", "instruct", "chat", " instruct", "it"]):
+        main_models.append(r)
+    else:
+        others.append(r)
+
+# 选择策略:
+# 1. 必需依赖全选
+# 2. 主模型选最大尺寸(验证上限)
+# 3. Base 模型跳过(除非没有主模型)
+# 4. others 选一个(最小的,节省空间)
+
+result = list(essential)
+
+if main_models:
+    # 选最大的(按参数量排序,取最大)
+    def extract_size(name):
+        # 尝试从名字提取参数量: 1.7B, 0.6B, 7B, 13B 等
+        match = re.search(r'(\d+\.?\d*)[Bb]', name)
+        return float(match.group(1)) if match else 0
+    main_models.sort(key=extract_size, reverse=True)
+    result.append(main_models[0])  # 最大的主模型
+elif base_models:
+    # 没有主模型,只能用 Base
+    base_models.sort(key=lambda x: extract_size(x), reverse=True)
+    result.append(base_models[0])
+elif others:
+    # 没有分类信息,选最大的
+    others.sort(key=lambda x: extract_size(x), reverse=True)
+    result.append(others[0])
+
+# 如果还有 others 且总数<4,加一个最小的(增加覆盖率)
+remaining = [r for r in (others + main_models[1:] + base_models[1:]) if r not in result]
+if remaining and len(result) < 4:
+    remaining.sort(key=lambda x: extract_size(x))
+    result.append(remaining[0])
+
+skipped = [r for r in repos if r not in result]
+if skipped:
+    print(f"[intake] F14: Skipped non-essential repos: {skipped}", file=sys.stderr)
+
+print(json.dumps(result))
+PYEOF
+)
+  # 如果筛选失败,回退到全量下载
+  if [ -z "$FILTERED_REPOS" ] || [ "$FILTERED_REPOS" = "[]" ]; then
+    echo "[intake] F14 filter failed, falling back to full download" >> "$LOG"
+    FILTERED_REPOS="$HF_REPOS"
+  fi
+  
+  WEIGHT_PATHS_JSON=$(echo "$FILTERED_REPOS" | python3 -c "
 import sys, json
 repos = json.loads(sys.stdin.read())
 paths = [{'hf_repo': r, 'target_rel': f'.cache/hf_models/{r}'} for r in repos]
 print(json.dumps(paths))
 ")
-  HF_DEPS_JSON="$HF_REPOS"
+  HF_DEPS_JSON="$FILTERED_REPOS"
+  
+  # Fix5-B: weight_target_paths 环境变量路径映射增强
+  # 扫描代码中的权重路径 hardcode + 环境变量，构建更准确的 symlink 映射
+  WEIGHT_PATHS_JSON=$(echo "$FILTERED_REPOS" | python3 << 'PYEOF5B'
+import sys, json, os, re, pathlib
+
+repos = json.loads(sys.stdin.read())
+repo_dir = os.environ.get("REPO_DIR", "")
+paths = []
+
+for r in repos:
+    entry = {"hf_repo": r, "target_rel": f".cache/hf_models/{r}"}
+    
+    if not repo_dir or not os.path.isdir(repo_dir):
+        paths.append(entry)
+        continue
+    
+    # 策略1: 从 from_pretrained 调用中提取 local_dir / cache_dir 参数
+    # 例: from_pretrained("org/model", cache_dir="checkpoints/")
+    for py in pathlib.Path(repo_dir).rglob("*.py"):
+        try:
+            text = py.read_text(errors="ignore")
+        except:
+            continue
+        # 找 local_dir= / cache_dir= / model_path= 等参数
+        for m in re.finditer(
+            r'(?:local_dir|cache_dir|model_path|ckpt_dir|weight_dir|checkpoint_dir)\s*[=:]\s*["\']([^"\']+)["\']',
+            text
+        ):
+            custom_path = m.group(1)
+            if custom_path and not custom_path.startswith(("/", "$", "~")):
+                entry["target_rel"] = custom_path
+                entry["symlink_from"] = f".cache/hf_models/{r}"
+                break
+        
+        # 如果已找到就不再搜
+        if entry.get("symlink_from"):
+            break
+    
+    # 策略2: 扫描环境变量路径映射(README + .env + 代码)
+    # 例: MAGENTA_HOME=xxx, TRANSFORMERS_CACHE=xxx, CKPT_PATH=xxx
+    if not entry.get("symlink_from") and repo_dir:
+        env_patterns = []
+        # 从 .env 文件
+        env_file = pathlib.Path(repo_dir) / ".env"
+        if env_file.exists():
+            for line in env_file.read_text(errors="ignore").splitlines():
+                m = re.match(r'^\s*([A-Z_]+(?:MODEL|CKPT|WEIGHT|PATH|HOME|CACHE|DIR)[A-Z_]*)\s*=\s*(.+)', line)
+                if m:
+                    env_patterns.append((m.group(1), m.group(2).strip().strip('"').strip("'")))
+        
+        # 从 README 和代码中 grep 环境变量引用
+        for doc in list(pathlib.Path(repo_dir).glob("README*")) + list(pathlib.Path(repo_dir).glob("*.md")):
+            try:
+                text = doc.read_text(errors="ignore")
+            except:
+                continue
+            for m in re.finditer(
+                r'(?:export\s+)?([A-Z_]+(?:MODEL|CKPT|WEIGHT|PATH|HOME|CACHE|DIR)[A-Z_]*)\s*[=:]\s*["\']?([^"\'\s\n]+)',
+                text
+            ):
+                env_patterns.append((m.group(1), m.group(2)))
+        
+        # 如果找到环境变量路径映射，记录到 weight_target_paths
+        if env_patterns:
+            entry["env_mappings"] = [{"var": k, "value": v} for k, v in env_patterns[:5]]
+    
+    paths.append(entry)
+
+print(json.dumps(paths, ensure_ascii=False))
+PYEOF5B
+)
+  
+  # 记录筛选信息
+  ORIGINAL_COUNT=$(echo "$HF_REPOS" | python3 -c "import sys,json; print(len(json.loads(sys.stdin.read())))" 2>/dev/null || echo "?")
+  FILTERED_COUNT=$(echo "$FILTERED_REPOS" | python3 -c "import sys,json; print(len(json.loads(sys.stdin.read())))" 2>/dev/null || echo "?")
+  echo "[intake] F14: hf_repos ${ORIGINAL_COUNT}→${FILTERED_COUNT} (minimal verifiable subset)" >> "$LOG"
 fi
 
 # ---- 6. Preflight ----
@@ -131,10 +330,11 @@ GATED_OK=true
 GPU_PICKS_JSON="[]"
 FREE_DISK_GB=0
 
-# 磁盘
+# 磁盘 — 乘以 3x 安全系数(HF 下载含 .cache 元数据+LFS,实测 2-4.4x 偏差)
 FREE_DISK_GB=$(df -BG /root | awk 'NR==2 {gsub("G","",$4); print $4}')
-NEED_DISK=$(echo "$EST_WEIGHT_GB + 50" | bc 2>/dev/null || echo 100)
-if [ "${FREE_DISK_GB:-0}" -lt "${NEED_DISK:-100}" ]; then
+NEED_DISK=$(python3 -c "print(int(float('$EST_WEIGHT_GB' or 0) * 3 + 50))" 2>/dev/null || echo 150)
+echo "[intake] Disk check: free=${FREE_DISK_GB}GB, need=${NEED_DISK}GB (est=${EST_WEIGHT_GB}GB × 3 + 50)" >> "$LOG"
+if [ "${FREE_DISK_GB:-0}" -lt "${NEED_DISK:-150}" ]; then
   BLOCKED_JSON=$(echo "$BLOCKED_JSON" | python3 -c "import sys,json; a=json.loads(sys.stdin.read()); a.append('disk_low: free=${FREE_DISK_GB}GB need=${NEED_DISK}GB'); print(json.dumps(a))")
 fi
 
@@ -207,6 +407,7 @@ fi
 export IN_SLUG="$SLUG"
 export IN_WORKSPACE="$WORKSPACE"
 export IN_ENTRY_SCRIPT="$ENTRY_SCRIPT"
+export IN_ENTRY_TYPE="$ENTRY_TYPE"
 export IN_HF_DEPS_JSON="$HF_DEPS_JSON"
 export IN_WEIGHT_PATHS_JSON="$WEIGHT_PATHS_JSON"
 export IN_GPU_PICKS_JSON="$GPU_PICKS_JSON"
@@ -226,6 +427,7 @@ import json, os, datetime
 slug = os.environ["IN_SLUG"]
 workspace = os.environ["IN_WORKSPACE"]
 entry_script = os.environ["IN_ENTRY_SCRIPT"] or None
+entry_type = os.environ.get("IN_ENTRY_TYPE", "script") or "script"
 hf_deps = json.loads(os.environ["IN_HF_DEPS_JSON"])
 weight_paths = json.loads(os.environ["IN_WEIGHT_PATHS_JSON"])
 gpu_picks = json.loads(os.environ["IN_GPU_PICKS_JSON"])
@@ -242,6 +444,7 @@ duration = int(datetime.datetime.now().timestamp()) - start_ts
 
 result = {
     "entry_script": entry_script,
+    "entry_type": entry_type,
     "hf_deps": hf_deps,
     "weight_target_paths": weight_paths,
     "gpu_picks": gpu_picks,

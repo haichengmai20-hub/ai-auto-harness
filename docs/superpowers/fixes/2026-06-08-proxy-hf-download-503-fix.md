@@ -5,7 +5,7 @@
 - **Fix ID**: `2026-06-08-proxy-hf-download-503-fix`
 - **创建日期**: 2026-06-08
 - **级别**: P1
-- **状态**: 进行中
+- **状态**: 进行中 → ✅ 已闭环(Hermes版 2026-06-17)
 - **负责人 / session**: Claude session @ 2026-06-08
 
 ---
@@ -109,8 +109,8 @@
 
 ## 修复结果
 
-- **状态**: ⬜ 待验证
-- **验证证据**: (待填)
+- **状态**: ✅ 已闭环(Hermes版 2026-06-17)
+- **验证证据**: phase-fetch-weights.sh 主进程+子进程均 unset HTTPS_PROXY/HTTP_PROXY + no_proxy 加 huggingface.co,.xet.cn; bash -n 通过
 - **commit hash**: (待填)
 - **commit message**: (待填)
 

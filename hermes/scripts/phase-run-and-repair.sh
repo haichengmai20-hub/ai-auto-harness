@@ -1,12 +1,13 @@
 #!/bin/bash
 # phase-run-and-repair.sh — run-and-repair 阶段执行脚本
 # 核心改进: 自修复循环(max 3轮) + GPU OOM 自动切 CPU fallback
-# 用法: bash hermes/scripts/phase-run-and-repair.sh <slug> <run_id> <entry_script> <gpu_picks_json>
+# 用法: bash hermes/scripts/phase-run-and-repair.sh <slug> <run_id> <entry_script> <gpu_picks_json> [entry_type]
 set -uo pipefail
 START_TS=$(date +%s)
 export AI_HARNESS_GUARD_SKIP=1
 
 SLUG="$1"; RUN_ID="$2"; ENTRY_SCRIPT="$3"; GPU_PICKS_JSON="$4"
+ENTRY_TYPE="${5:-script}"  # script/gradio/service/docker/pypi_package
 
 HARNESS_ROOT="/root/ai-auto-harness"
 WORKSPACE="$HARNESS_ROOT/workspace/$SLUG"
@@ -62,6 +63,95 @@ else:
 " 2>/dev/null || echo "$ENTRY_SCRIPT")
 printf '%s\n' "$CLEAN_SCRIPT" > "$ENTRY_FILE"
 echo "[run] Entry script written to $ENTRY_FILE ($(wc -l < "$ENTRY_FILE") lines)" | tee -a "$LOG"
+
+# ---- entry_type=gradio/pypi_package: 自动生成推理脚本 ----
+# Gradio/Streamlit UI 的 demo.py/app.py 不适合做推理入口
+# 需要生成一个 from_pretrained + generate + save 形式的自包含推理脚本
+if [ "$ENTRY_TYPE" = "gradio" ] || [ "$ENTRY_TYPE" = "pypi_package" ]; then
+  echo "[run] entry_type=$ENTRY_TYPE, 自动生成推理脚本" | tee -a "$LOG"
+  
+  INTAKE_JSON="$WORKSPACE/results/intake.json"
+  if [ -f "$INTAKE_JSON" ]; then
+    # 从 intake.json 读项目信息来生成推理脚本
+    python3 << 'PYEOF' >> "$LOG" 2>&1
+import json, os, sys
+
+workspace = os.environ.get("WORKSPACE", "")
+intake_path = os.path.join(workspace, "results", "intake.json")
+entry_file = os.path.join(workspace, ".cache", "entry_script.py")
+
+with open(intake_path) as f:
+    intake = json.load(f)
+
+hf_deps = intake.get("hf_deps", [])
+weight_paths = intake.get("weight_target_paths", [])
+entry_script_orig = intake.get("entry_script", "")
+entry_type = os.environ.get("ENTRY_TYPE", "script")
+
+# 生成推理脚本模板
+lines = [
+    '"""Auto-generated inference script by ai-auto-harness."""',
+    'import os, sys',
+    '',
+]
+
+# 构建 from_pretrained 调用
+# 尝试从 weight_paths 推断模型类和路径
+local_model_paths = []
+for wp in weight_paths:
+    hf_repo = wp.get("hf_repo", "")
+    target_rel = wp.get("target_rel", "")
+    local_path = os.path.join(workspace, target_rel)
+    if os.path.isdir(local_path):
+        local_model_paths.append({"hf_repo": hf_repo, "local_path": local_path})
+
+if local_model_paths:
+    # 使用第一个模型做推理
+    first = local_model_paths[0]
+    lines.append(f'# Model: {first["hf_repo"]}')
+    lines.append(f'MODEL_PATH = "{first["local_path"]}"')
+    lines.append('')
+    lines.append('from transformers import AutoModelForCausalLM, AutoTokenizer')
+    lines.append('')
+    lines.append('print(f"Loading model from {{MODEL_PATH}}...")')
+    lines.append('tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True)')
+    lines.append('model = AutoModelForCausalLM.from_pretrained(')
+    lines.append('    MODEL_PATH,')
+    lines.append('    device_map="auto",')
+    lines.append('    trust_remote_code=True,')
+    lines.append('    torch_dtype="auto",')
+    lines.append(')')
+    lines.append('model.eval()')
+    lines.append('')
+    lines.append('# Run inference')
+    lines.append('prompt = "Hello, how are you?"')
+    lines.append('inputs = tokenizer(prompt, return_tensors="pt").to(model.device)')
+    lines.append('outputs = model.generate(**inputs, max_new_tokens=50)')
+    lines.append('result = tokenizer.decode(outputs[0], skip_special_tokens=True)')
+    lines.append('print(f"Output: {{result}}")')
+    lines.append('print("Inference successful!")')
+else:
+    # 没有本地模型路径，生成通用模板
+    lines.append('# No local model paths found - generic template')
+    lines.append('print("WARNING: No model paths found in intake.json")')
+    lines.append('print("This script needs manual customization.")')
+    lines.append('sys.exit(1)')
+
+script_content = "\n".join(lines)
+with open(entry_file, "w") as f:
+    f.write(script_content)
+
+print(f"[run] Auto-generated inference script: {entry_file} ({len(lines)} lines)")
+PYEOF
+    
+    if [ $? -eq 0 ]; then
+      echo "[run] Gradio/pypi_package 推理脚本生成成功" | tee -a "$LOG"
+      FIXES_APPLIED=$(echo "$FIXES_APPLIED" | python3 -c "import sys,json; a=json.loads(sys.stdin.read()); a.append('auto_inference_script'); print(json.dumps(a))" 2>/dev/null || echo '["auto_inference_script"]')
+    else
+      echo "[run] ⚠️ 推理脚本生成失败,继续使用原始 entry_script" | tee -a "$LOG"
+    fi
+  fi
+fi
 
 # ---- HF model id → 本地路径替换 ----
 # from_pretrained("org/model") 会重新下载到 ~/.cache/huggingface/

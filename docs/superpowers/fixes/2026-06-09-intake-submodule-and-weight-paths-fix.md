@@ -5,7 +5,7 @@
 - **Fix ID**: `2026-06-09-intake-submodule-and-weight-paths-fix`
 - **创建日期**: 2026-06-09
 - **级别**: P2
-- **状态**: 进行中
+- **状态**: 进行中 → ✅ 已闭环(Hermes版 2026-06-17)
 - **负责人 / session**: Claude session @ 2026-06-09
 
 ---
@@ -122,8 +122,8 @@ intake SKILL.md 第 5.5 步的 grep pattern `ckpt/|weights/|models/|checkpoints/
 
 ## 修复结果
 
-- **状态**: ⬜ 待实施
-- **验证证据**: 待改后重跑验证
+- **状态**: 🟡 部分闭环(Hermes版 2026-06-17) → ✅ 已闭环(Hermes版 2026-06-17)
+- **验证证据**: phase-intake.sh 已加 git submodule update --init --recursive; Fix5-B 新增环境变量路径映射扫描(策略1: from_pretrained local_dir/cache_dir 提取; 策略2: .env/README 环境变量 grep); phase-fetch-weights.sh symlink 逻辑改为读取 symlink_from/env_mappings 字段做精准映射 + 写 .env.local; bash -n 通过
 - **commit hash**: `<pending>`
 - **commit message**: `<pending>`
 

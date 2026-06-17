@@ -292,36 +292,89 @@ done
 
 ```bash
 # 环境快照 — 给 verify 和后续诊断用
-cat > "$WORKSPACE/results/environment.json" <<JSON
-{
-  "venv_path": "$WORKSPACE/venv",
-  "python": "$(python --version 2>&1)",
-  "pip": "$(pip --version 2>&1)",
-  "torch": "$(python -c 'import torch; print(torch.__version__)' 2>&1)",
-  "cuda": "$(python -c 'import torch; print(torch.version.cuda)' 2>&1)",
-  "torch_archs": $(python -c 'import torch,json; print(json.dumps(torch.cuda.get_arch_list()))' 2>&1),
-  "sm_12_supported": $(python -c 'import torch; print("true" if any("120" in a or "12.0" in a for a in torch.cuda.get_arch_list()) else "false")' 2>&1),
-  "captured_at": "$(date -Iseconds)"
+# 先在 heredoc 外求值 bash 命令替换,再 export 进 python heredoc
+export V_VENV_PATH="$WORKSPACE/venv"
+export V_PYTHON_VER="$(python --version 2>&1)"
+export V_PIP_VER="$(pip --version 2>&1)"
+export V_TORCH_VER="$(python -c 'import torch; print(torch.__version__)' 2>&1)"
+export V_CUDA_VER="$(python -c 'import torch; print(torch.version.cuda)' 2>&1)"
+export V_TORCH_ARCHS="$(python -c 'import torch,json; print(json.dumps(torch.cuda.get_arch_list()))' 2>&1)"
+export V_SM12="$(python -c 'import torch; print("true" if any("120" in a or "12.0" in a for a in torch.cuda.get_arch_list()) else "false")' 2>&1)"
+export V_TIMESTAMP="$(date -Iseconds)"
+
+python3 << 'PYEOF'
+import json, os
+
+venv_path = os.environ["V_VENV_PATH"]
+python_ver = os.environ["V_PYTHON_VER"]
+pip_ver = os.environ["V_PIP_VER"]
+torch_ver = os.environ["V_TORCH_VER"]
+cuda_ver = os.environ["V_CUDA_VER"]
+torch_archs = json.loads(os.environ.get("V_TORCH_ARCHS", "[]"))
+sm_12_supported = os.environ.get("V_SM12", "false") == "true"
+timestamp = os.environ["V_TIMESTAMP"]
+
+obj = {
+    "venv_path": venv_path,
+    "python": python_ver,
+    "pip": pip_ver,
+    "torch": torch_ver,
+    "cuda": cuda_ver,
+    "torch_archs": torch_archs,
+    "sm_12_supported": sm_12_supported,
+    "captured_at": timestamp
 }
-JSON
+with open(os.environ.get("WORKSPACE", ".") + "/results/environment.json", "w") as f:
+    json.dump(obj, f, ensure_ascii=False, indent=2)
+PYEOF
 
 # install 结果
-cat > "$WORKSPACE/results/install.json" <<JSON
-{
-  "venv_path": "$WORKSPACE/venv",
-  "deps_ok": <true|false>,
-  "fixes_applied": [...],
-  "warnings": [...],
-  "blocked": <true|false>,
-  "completed_at": "$(date -Iseconds)"
+export V_VENV_PATH2="$WORKSPACE/venv"
+export V_DEPS_OK="<true|false>"
+export V_FIXES_APPLIED="<json array string>"
+export V_WARNINGS="<json array string>"
+export V_BLOCKED="<true|false>"
+export V_TIMESTAMP2="$(date -Iseconds)"
+
+python3 << 'PYEOF'
+import json, os
+
+def env(key, default=None):
+    val = os.environ.get(key, default)
+    if val is None:
+        return None
+    if val == "null" or val == "":
+        return None
+    if val == "true":
+        return True
+    if val == "false":
+        return False
+    return val
+
+venv_path = os.environ["V_VENV_PATH2"]
+deps_ok = env("V_DEPS_OK") == True
+fixes_applied = json.loads(env("V_FIXES_APPLIED") or "[]")
+warnings = json.loads(env("V_WARNINGS") or "[]")
+blocked = env("V_BLOCKED") == True
+timestamp = os.environ["V_TIMESTAMP2"]
+
+obj = {
+    "venv_path": venv_path,
+    "deps_ok": deps_ok,
+    "fixes_applied": fixes_applied,
+    "warnings": warnings,
+    "blocked": blocked,
+    "completed_at": timestamp
 }
-JSON
+with open(os.environ.get("WORKSPACE", ".") + "/results/install.json", "w") as f:
+    json.dump(obj, f, ensure_ascii=False, indent=2)
+PYEOF
 
 echo "==== install-env end at $(date -Iseconds) ====" >> "$LOG"
 echo "=== PHASE_END   phase=install-env slug=$SLUG status=done ts=$(date -Iseconds) ==="
 ```
 
-> 🔴 上面两个 heredoc **必须用 Bash 工具执行**(无引号 `JSON` 分隔符,`$(date)` 在 bash 里求值)。
+> 🔴 上面两个 heredoc **必须用 Bash 工具执行**(单引号 `'PYEOF'` 分隔符,`$(date)` / `$(python ...)` 在 heredoc 外的 export 行求值)。
 > **绝不要把模板原文用 Write 工具直接写成 .json 文件** — 那样 `$(date -Iseconds)` / `<true|false>`
 > 会变成字面量字符串落盘(hunyuan3d-2 实测翻车;`scripts/validate-artifacts.sh` 现在会 FAIL 这种值)。
 
@@ -344,8 +397,16 @@ echo "=== PHASE_END   phase=install-env slug=$SLUG status=done ts=$(date -Isecon
 - ❌ 强装某个特定版本而没看 lessons(浪费时间)
 - ❌ 第 4 次重装 torch 还没好 → 必须 raise pending_human
 - ❌ 用 Write 工具把含 `$(date)` / `<占位符>` 的 JSON 模板原样写盘 — 时间戳必须经 Bash heredoc 求值或 `jq --arg ts "$(date -Iseconds)"` 注入
+- ❌ **用 `<<JSON`(无引号 heredoc)** — bash 变量内插导致 `null` 泄漏(Python 看到 `null` 不是 `None`,json.loads() 崩)和引号截断(`$FIXES_APPLIED` 含引号时截断)。必须用 `<<'PYEOF'`(单引号不插值)+ `export` 传参 + `os.environ` 读参 + `if val == "null": val = None`
 
 ## ChangeLog
+
+- **2026-06-17** — H1 heredoc null 泄漏修复:无引号 heredoc→单引号 + export/os.environ + null→None
+  - 变更类型: 模板(heredoc 写法)+ 反模式
+  - 影响范围: 第 8 步 environment.json + install.json 两个 heredoc 模板(从 `<<JSON` bash 内插改为 `<<'PYEOF'` python3 + export/os.environ + null→None 转换;`$(python --version)` 等命令替换在 heredoc 外 export 行求值)/ 反模式段新增无引号 heredoc 禁令
+  - 动机: `<<JSON` 无引号 heredoc 让 bash 内插 `$FAILED_AT_VAL=null` → Python 看到 `null`(不是 `None`),`$FIXES_APPLIED` 含引号时截断,`json.loads()` 崩溃。Hermes 版已修,CC 版 SKILL.md 同步
+  - 证据: Hermes 版修法见 `hermes/scripts/phase-install.sh`;CC 版同步
+  - 验证: 模板 bash -n 合规;grep `<<JSON` 无残留
 
 - **2026-06-16** — H3 apt 系统依赖检测 + F10 .bashrc 污染绕过(CC 同步,batch #2)
   - 变更类型: 流程(新增第 6.5 步 + 第 1 步 F10 检测)

@@ -35,21 +35,52 @@ echo "=== PHASE_START phase=intake slug=$SLUG run_id=$RUN_ID ts=$(date -Iseconds
 写初始 state.json:
 
 ```bash
-cat > "$WORKSPACE/state.json" <<JSON
-{
-  "slug": "$SLUG",
-  "github_url": "<from input>",
-  "hf_repos": <from input>,
-  "estimated_params_b": <from input>,
-  "estimated_weight_size_gb": <from input>,
-  "gated_repos": <from input>,
-  "scenario_hits": <from input>,
-  "phase": "intake",
-  "phases_done": [],
-  "started_at": "$(date -Iseconds)",
-  "updated_at": "$(date -Iseconds)"
+# 先在 heredoc 外求值 bash 命令替换,再 export 进 python heredoc
+export V_SLUG="$SLUG"
+export V_GITHUB_URL="<from input>"
+export V_HF_REPOS="<from input, json array string>"
+export V_ESTIMATED_PARAMS_B="<from input>"
+export V_ESTIMATED_WEIGHT_SIZE_GB="<from input>"
+export V_GATED_REPOS="<from input, json array string>"
+export V_SCENARIO_HITS="<from input, json array string>"
+export V_TIMESTAMP="$(date -Iseconds)"
+
+python3 << 'PYEOF'
+import json, os
+
+def env(key, default=None):
+    val = os.environ.get(key, default)
+    if val is None:
+        return None
+    if val == "null" or val == "":
+        return None
+    return val
+
+slug = os.environ["V_SLUG"]
+github_url = os.environ["V_GITHUB_URL"]
+hf_repos = json.loads(env("V_HF_REPOS") or "[]")
+estimated_params_b = env("V_ESTIMATED_PARAMS_B")
+estimated_weight_size_gb = env("V_ESTIMATED_WEIGHT_SIZE_GB")
+gated_repos = json.loads(env("V_GATED_REPOS") or "[]")
+scenario_hits = json.loads(env("V_SCENARIO_HITS") or "[]")
+timestamp = os.environ["V_TIMESTAMP"]
+
+obj = {
+    "slug": slug,
+    "github_url": github_url,
+    "hf_repos": hf_repos,
+    "estimated_params_b": estimated_params_b,
+    "estimated_weight_size_gb": estimated_weight_size_gb,
+    "gated_repos": gated_repos,
+    "scenario_hits": scenario_hits,
+    "phase": "intake",
+    "phases_done": [],
+    "started_at": timestamp,
+    "updated_at": timestamp
 }
-JSON
+with open(os.environ.get("WORKSPACE", ".") + "/state.json", "w") as f:
+    json.dump(obj, f, ensure_ascii=False, indent=2)
+PYEOF
 ```
 
 ### 2. 克隆
@@ -165,22 +196,59 @@ jq --arg phase fetching \
 ### 8. 返回前落盘 results JSON
 
 ```bash
-cat > "$WORKSPACE/results/intake.json" <<JSON
-{
-  "entry_script": "<推断出的>",
-  "entry_type": "script",
-  "service": null,
-  "hf_deps": [...],
-  "weight_target_paths": [
-    {"hf_repo": "<org>/<repo>", "target_rel": "<相对 repo/ 的路径>"}
-  ],
-  "gpu_picks": [...],
-  "blocked": [...],
-  "warnings": [...],
-  "ready_to_fetch": <true|false>,
-  "completed_at": "$(date -Iseconds)"
+# 用 export + 单引号 heredoc(os.environ 读参),防止 bash 内插导致 null 泄漏/引号截断
+export V_ENTRY_SCRIPT="<推断出的>"
+export V_ENTRY_TYPE="script"
+export V_SERVICE="<json string or null>"
+export V_HF_DEPS="<json array string>"
+export V_WEIGHT_TARGET_PATHS="<json array string>"
+export V_GPU_PICKS="<json array string>"
+export V_BLOCKED="<json array string>"
+export V_WARNINGS="<json array string>"
+export V_READY_TO_FETCH="<true|false>"
+export V_TIMESTAMP="$(date -Iseconds)"
+
+python3 << 'PYEOF'
+import json, os
+
+def env(key, default=None):
+    val = os.environ.get(key, default)
+    if val is None:
+        return None
+    if val == "null" or val == "":
+        return None
+    if val == "true":
+        return True
+    if val == "false":
+        return False
+    return val
+
+entry_script = env("V_ENTRY_SCRIPT")
+entry_type = env("V_ENTRY_TYPE")
+service = json.loads(env("V_SERVICE") or "null")
+hf_deps = json.loads(env("V_HF_DEPS") or "[]")
+weight_target_paths = json.loads(env("V_WEIGHT_TARGET_PATHS") or "[]")
+gpu_picks = json.loads(env("V_GPU_PICKS") or "[]")
+blocked = json.loads(env("V_BLOCKED") or "[]")
+warnings = json.loads(env("V_WARNINGS") or "[]")
+ready_to_fetch = env("V_READY_TO_FETCH") == True
+timestamp = os.environ["V_TIMESTAMP"]
+
+obj = {
+    "entry_script": entry_script,
+    "entry_type": entry_type,
+    "service": service,
+    "hf_deps": hf_deps,
+    "weight_target_paths": weight_target_paths,
+    "gpu_picks": gpu_picks,
+    "blocked": blocked,
+    "warnings": warnings,
+    "ready_to_fetch": ready_to_fetch,
+    "completed_at": timestamp
 }
-JSON
+with open(os.environ.get("WORKSPACE", ".") + "/results/intake.json", "w") as f:
+    json.dump(obj, f, ensure_ascii=False, indent=2)
+PYEOF
 echo "==== intake end at $(date -Iseconds) ====" >> "$LOG"
 echo "=== PHASE_END   phase=intake slug=$SLUG status=done ts=$(date -Iseconds) ==="
 ```
@@ -221,7 +289,20 @@ service 项目时 `entry_type` 填 `"service"`,`service` 填完整 descriptor:
 }
 ```
 
+## 反模式
+
+- ❌ **用 `<<JSON`(无引号 heredoc)** — bash 变量内插导致 `null` 泄漏(Python 看到 `null` 不是 `None`,json.loads() 崩)和引号截断(`$FIXES_APPLIED` 含引号时截断)。必须用 `<<'PYEOF'`(单引号不插值)+ `export` 传参 + `os.environ` 读参 + `if val == "null": val = None`
+- ❌ 用 Write 工具把含 `$(date)` / `<占位符>` 的 JSON 模板原样写盘 — 时间戳必须经 Bash heredoc 求值或 `jq --arg ts "$(date -Iseconds)"` 注入
+- ❌ 推断 python 版本不标 low confidence — 推断经常不准,害 install 阶段重装
+
 ## ChangeLog
+
+- **2026-06-17** — H1 heredoc null 泄漏修复:无引号 heredoc→单引号 + export/os.environ + null→None
+  - 变更类型: 模板(heredoc 写法)+ 反模式(新增反模式段)
+  - 影响范围: 第 1 步 state.json + 第 8 步 intake.json 两个 heredoc 模板(从 `<<JSON` bash 内插改为 `<<'PYEOF'` python3 + export/os.environ + null→None 转换)/ 新增反模式段(无引号 heredoc 禁令 + Write 工具字面量禁令 + python 版本推断 confidence)
+  - 动机: `<<JSON` 无引号 heredoc 让 bash 内插 `$FAILED_AT_VAL=null` → Python 看到 `null`(不是 `None`),`$FIXES_APPLIED` 含引号时截断,`json.loads()` 崩溃。Hermes 版已修,CC 版 SKILL.md 同步
+  - 证据: Hermes 版修法见 `hermes/scripts/phase-intake.sh`;CC 版同步
+  - 验证: 模板 bash -n 合规;grep `<<JSON` 无残留
 
 - **2026-06-10** — python 版本判定优先 requires-python 字段,推断必标 low confidence
   - 变更类型: 流程 / schema 语义

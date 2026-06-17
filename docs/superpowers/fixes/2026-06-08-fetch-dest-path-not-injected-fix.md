@@ -5,7 +5,7 @@
 - **Fix ID**: `2026-06-08-fetch-dest-path-not-injected-fix`
 - **创建日期**: 2026-06-08
 - **级别**: P1
-- **状态**: 进行中
+- **状态**: ✅ 已闭环(Hermes迁移解决)
 - **负责人 / session**: Claude session @ 2026-06-08
 
 ---
@@ -107,10 +107,11 @@
 
 ## 修复结果
 
-- **状态**: ⬜ 待验证
-- **验证证据**: 待重跑 magenta-realtime fetch 阶段
-- **commit hash**: `<pending>`
-- **commit message**: `<pending>`
+- **状态**: ✅ 已闭环
+- **闭环方式**: Hermes 迁移解决 — `phase-fetch-weights.sh` 行 32 用固定 `DEST=$WORKSPACE/.cache/hf_models/$REPO`，不再依赖 SubAgent 自拼路径
+- **验证证据**: phase 脚本硬编码 DEST 模板，SubAgent 从 prompt 参数接收，消除了路径自拼混乱的根因
+- **commit hash**: `<Hermes migration>`
+- **commit message**: phase-fetch-weights.sh 固定 DEST 路径模板
 
 ---
 

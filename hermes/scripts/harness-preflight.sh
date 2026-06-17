@@ -89,6 +89,12 @@ echo "磁盘 free: ${DISK_FREE_GB}GB"
 nvidia-smi --query-gpu=index,memory.used,memory.free --format=csv,noheader,nounits 2>/dev/null \
     | awk -F', ' '{printf "GPU%s: used=%dMiB free=%dMiB\n", $1, $2, $3}' || echo "⚠️ nvidia-smi 不可用"
 
+# workspace 占用摘要（只输出 top 5 + 可清理汇总，不输出全表）
+echo "--- workspace 占用 top5 ---"
+bash scripts/workspace-stats.sh 2>/dev/null | grep -E '^\s+\S+\s+[0-9]+' | sort -k2 -rh | head -5 || true
+ARCHIVED_INFO=$(bash scripts/workspace-stats.sh 2>/dev/null | grep "可清理:" || true)
+[ -n "$ARCHIVED_INFO" ] && echo "  $ARCHIVED_INFO"
+
 # ---- 4. 接续/积压摘要 ----
 echo "--- in_progress 项目(接续优先,不挑新) ---"
 FOUND=0
