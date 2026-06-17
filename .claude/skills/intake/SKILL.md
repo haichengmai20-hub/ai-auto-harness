@@ -71,6 +71,32 @@ git clone --depth=1 "$GITHUB_URL" repo 2>&1 | tee -a "$LOG"
 - `$WORKSPACE/repo/*example*.py`、`inference*.py`、`demo*.py`、`app.py`
 - `$WORKSPACE/repo/configs/*.yaml`(若有)
 
+### 3.5 判定 entry_type(F13)
+
+```bash
+ET=script
+if ls "$WORKSPACE/repo"/{run_backend.sh,server.py,app.py,api.py} >/dev/null 2>&1 \
+   || grep -rqiE "vllm serve|uvicorn|fastapi|flask run|\.launch\(|\.serve\(|gradio" \
+        "$WORKSPACE/repo" --include="*.py" --include="*.md" --include="*.sh" 2>/dev/null; then
+  ET=service
+fi
+echo "entry_type=$ET" | tee -a "$LOG"
+```
+
+`service` 时,从 README quickstart「启动服务 / 发请求」段 + 启动脚本 + config 抽出 descriptor(best-effort,全包,标 confidence):
+
+- `start_cmd`:启动后端的命令,把选定 GPU(`gpu_picks[0]`)按项目的传法注入(`--gpus N` / `CUDA_VISIBLE_DEVICES=N` / config);传法不明在 `warnings` 标注
+- `ready_signal`:优先找 health/任意 GET 端点 → `{"type":"http","url":"http://127.0.0.1:<port>/health","expect_status":200}`;没有则退 log 型 → `{"type":"log","pattern":"Uvicorn running|Application startup complete|Running on http"}`
+- `port`:从启动命令/config/README 抽;抽不到填 0 并 `warnings`
+- `infer_cmd`:从 README 的请求示例构造(curl / 项目自带 client),**必须**把结果写到 `output_path`(curl 加 `-o <output_path>`)
+- `output_path`:推理产物相对 `repo/` 的路径
+- `stop_cmd`:项目有停止命令则填,无则留空(run/cleanup 直接杀 PID)
+- `confidence`:README 给全=high;靠框架默认推=medium/low
+
+连 `start_cmd` 都推不出 → `blocked: ["service_descriptor_incomplete"]`(走现有失败处理→paused_for_human)。
+
+> ⚠️ `app.py` 不一定是服务(可能是 CLI)。判定后**读 app.py 头部确认**有 server/launch 语义(`uvicorn.run`/`app.run`/`.launch(`/`serve`)再定 service;只是 argparse CLI 的 `app.py` 仍按 script。
+
 ### 4. 推断 entry_script
 
 优先级:
@@ -126,7 +152,7 @@ grep -A 30 -iE "directory structure|folder structure|file layout|目录结构|we
 
 ```bash
 jq --arg phase fetching \
-   --argjson result '{"entry_script":"...","hf_deps":[...],"gpu_picks":[...],"blocked":[]}' \
+   --argjson result '{"entry_script":"...","entry_type":"script","service":null,"hf_deps":[...],"gpu_picks":[...],"blocked":[]}' \
    '.phase = $phase | .phases_done += ["intake"] | .intake_result = $result | .updated_at = "'$(date -Iseconds)'"' \
    "$WORKSPACE/state.json" > /tmp/s && mv /tmp/s "$WORKSPACE/state.json"
 ```
@@ -142,6 +168,8 @@ jq --arg phase fetching \
 cat > "$WORKSPACE/results/intake.json" <<JSON
 {
   "entry_script": "<推断出的>",
+  "entry_type": "script",
+  "service": null,
   "hf_deps": [...],
   "weight_target_paths": [
     {"hf_repo": "<org>/<repo>", "target_rel": "<相对 repo/ 的路径>"}
@@ -162,6 +190,30 @@ echo "=== PHASE_END   phase=intake slug=$SLUG status=done ts=$(date -Iseconds) =
 ```json
 {
   "entry_script": "python -m flux t2i --output out.png",
+  "entry_type": "script",
+  "service": null,
+  "hf_deps": ["..."],
+  "gpu_picks": [3, 4],
+  "blocked": [],
+  "ready_to_fetch": true
+}
+```
+
+service 项目时 `entry_type` 填 `"service"`,`service` 填完整 descriptor:
+
+```json
+{
+  "entry_script": null,
+  "entry_type": "service",
+  "service": {
+    "start_cmd": "python server.py --port 8001",
+    "ready_signal": {"type": "http", "url": "http://127.0.0.1:8001/health", "expect_status": 200},
+    "port": 8001,
+    "infer_cmd": "curl -s -X POST http://127.0.0.1:8001/infer -d '{\"prompt\":\"test\"}' -o output_path",
+    "output_path": "results/output.json",
+    "stop_cmd": "",
+    "confidence": "high"
+  },
   "hf_deps": ["..."],
   "gpu_picks": [3, 4],
   "blocked": [],
@@ -176,3 +228,9 @@ echo "=== PHASE_END   phase=intake slug=$SLUG status=done ts=$(date -Iseconds) =
   - 影响范围: 第 3 步读核心文件
   - 动机: intake.json 常见 "3.10+ (inferred, not pinned)" 推断不准,害 install 阶段重装
   - 证据: [fixes/2026-06-10-external-review-sentinel-wallclock-runs-fix.md](../../../docs/superpowers/fixes/2026-06-10-external-review-sentinel-wallclock-runs-fix.md)
+
+- **2026-06-16** — entry_type 检测 + service descriptor(F13)
+  - 变更类型: schema + 流程
+  - 影响范围: 新增第 3.5 步(entry_type 判定 + service descriptor 推断);return schema 加 `entry_type`/`service` 两字段;第 7 步 jq `--argjson result` 携带 `entry_type`/`service`;第 8 步落盘 JSON 同步加两字段
+  - 动机: F1 服务型项目支持 — vLLM/Gradio/Flask 类项目须先起后端服务再发请求,原来只认 `python3 script.py` 的单脚本路径全挂
+  - 证据: [fixes/2026-06-16-service-type-inference-fix.md](../../../docs/superpowers/fixes/2026-06-16-service-type-inference-fix.md)
