@@ -148,6 +148,26 @@ fi
 
 **任一 G1-G4 不过** → 直接进第 5 步,return `{skipped: true, ...}`,**不动磁盘**。
 
+### 第 1.5 步:杀本 workspace 登记的后台进程(F12)
+
+service 型部署留下的 backend 进程,whitelist rm 前先杀(R1:只杀本 `$WORKSPACE/.cache/*.pid` 登记的,绝不碰未登记/训练/别 workspace):
+
+```bash
+STOP_CMD=$(jq -r '.intake_result.service.stop_cmd // empty' "$WORKSPACE/state.json" 2>/dev/null)
+[ -n "$STOP_CMD" ] && ( cd "$WORKSPACE/repo" 2>/dev/null && bash -c "$STOP_CMD" ) >> "$LOG" 2>&1 || true
+for pidfile in "$WORKSPACE"/.cache/*.pid; do
+  [ -f "$pidfile" ] || continue
+  while read -r pid; do
+    [ -z "$pid" ] && continue
+    st=$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null)
+    { [ -z "$st" ] || [ "$st" = Z ]; } && continue   # 已死/僵尸(kill -0 误判活)
+    echo "kill backend pid=$pid" >> "$LOG"
+    kill "$pid" 2>/dev/null; sleep 1; kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
+  done < "$pidfile"
+done
+```
+注:cleanup 在 verify 没过时可能被 G4 跳过 → 失败路径孤儿由 `reconcile-sentinels.sh`(T7)兜底。
+
 ### 第 2 步:白名单删(严格 bash,不用 `*` 展开 root)
 
 **绝不**用 `rm -rf $WORKSPACE/$VAR/*`(`$VAR` 空就清根)。**必须**显式枚举。
@@ -441,6 +461,8 @@ dry_run case(注意字段名是 `would_remove`,不是 `removed`):
 - ❌ **绝不**在 dry_run 模式输出 `removed` 字段 — 用 `would_remove` 字段(P4-2 语义清晰)
 - ❌ **绝不**递归清 `runs/*/.cache/` 或 `workspace/*/runs/*/.cache/`(其他 run 的 cache,R1 隔离);**只清本 run 的** `$RUN_DIR/.cache/`,见第 2.5 步
 - ❌ **绝不**修问题或重跑 — cleanup 只清不修(出错就写 pending_human,主 agent 处理)
+- ❌ **杀 .cache/*.pid 之外的 PID(R1)** — 第 1.5 步只迭代 `"$WORKSPACE"/.cache/*.pid`;严禁按 sentinel json 的 pid 字段、进程名、端口等其他方式定位进程来杀
+- ❌ **kill -0 判活(僵尸误判,查 /proc/<pid>/stat)** — 容器 PID 1 不回收僵尸,`kill -0` 对僵尸返回 0(误判为活);**必须**用 `awk '{print $3}' /proc/<pid>/stat`,`Z` 或文件不存在才算死
 
 ## 我做错了什么?常见诱惑
 
@@ -487,3 +509,10 @@ dry_run case(注意字段名是 `would_remove`,不是 `removed`):
   - 影响范围: 白名单 targets 段 / TARGETS 数组 / return schema 示例 / 反模式段
   - 动机: omnivoice cleanup 留下 `weights/` 3.1GB 可重建产物未清(P7-1/问题13)
   - 证据: [fixes/2026-06-02-runbook-cleanup-artifact-accuracy-fix.md](../../../docs/superpowers/fixes/2026-06-02-runbook-cleanup-artifact-accuracy-fix.md)
+
+- **2026-06-16** — 新增第 1.5 步:杀本 workspace 登记的后台进程(F12)+ 新增反模式 2 条
+  - 变更类型: 流程+反模式
+  - 影响范围: 新增第 1.5 步(白名单 rm 前先杀 service 型后台进程) + 反模式段新增 2 条(R1 PID 范围守卫 / kill -0 僵尸误判)
+  - 动机: F1 服务型(F12 杀后台) — service 型部署会在 `.cache/*.pid` 登记 backend 进程;cleanup 白名单 rm 前若不先杀,进程残留占 GPU 成孤儿
+  - 证据: [docs/superpowers/fixes/2026-06-16-service-type-inference-fix.md](../../../docs/superpowers/fixes/2026-06-16-service-type-inference-fix.md)
+  - 验证: bash -n 语法检查通过;grep 确认 第 1.5 步 在 第 1 步 G4 之后、第 2 步 白名单删之前;R1 守卫只迭代 `"$WORKSPACE"/.cache/*.pid`;活/死判定用 `/proc/<pid>/stat` 非 `kill -0`
