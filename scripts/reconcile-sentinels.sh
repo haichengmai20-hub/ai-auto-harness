@@ -75,3 +75,31 @@ for sentinel in root.glob("workspace/*/.cache/handoff/*.json"):
 
 print(f"=== reconcile-sentinels: {changed} sentinel(s) updated ===")
 PY
+
+# ---- service 孤儿回收(F14 安全网,fix 2026-06-16-service-type-inference)----
+# preflight 时机:flock+N=1 保证无活跃 run → 任何 status=running 的 service sentinel
+# 且其登记 PID 仍活 = 孤儿(创建它的上个 run 已死)。R1:只杀该 workspace .cache/*.pid 登记的 PID。
+WS_GLOB="${AI_HARNESS_WORKSPACE_GLOB:-/root/ai-auto-harness/workspace}"
+for sent in "$WS_GLOB"/*/.cache/handoff/service-*.json; do
+  [ -f "$sent" ] || continue
+  [ "$(jq -r '.status // empty' "$sent" 2>/dev/null)" = running ] || continue
+  sws=$(jq -r '.workspace // empty' "$sent" 2>/dev/null)
+  spid=$(jq -r '.pid // empty' "$sent" 2>/dev/null)
+  [ -z "$sws" ] || [ -z "$spid" ] && continue
+  # R1 守卫:PID 必须登记在该 workspace 的 .cache/*.pid 里才动
+  REGISTERED=false
+  for pf in "$sws"/.cache/*.pid; do
+    [ -f "$pf" ] || continue
+    grep -qx "$spid" "$pf" 2>/dev/null && { REGISTERED=true; break; }
+  done
+  if [ "$REGISTERED" != true ]; then
+    echo "[reconcile] service-sentinel pid=$spid 未登记在 $sws/.cache/*.pid,按 R1 不杀,只标 stopped"
+  else
+    st=$(awk '{print $3}' "/proc/$spid/stat" 2>/dev/null)
+    if [ -n "$st" ] && [ "$st" != Z ]; then
+      echo "[reconcile] 孤儿 service pid=$spid (ws=$sws) → kill"
+      kill "$spid" 2>/dev/null || true; sleep 1; kill -0 "$spid" 2>/dev/null && kill -9 "$spid" 2>/dev/null || true
+    fi
+  fi
+  tmp=$(mktemp); jq '.status="stopped" | .reconciled_at="'"$(date -Iseconds)"'"' "$sent" > "$tmp" 2>/dev/null && mv "$tmp" "$sent" || true
+done
