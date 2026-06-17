@@ -118,7 +118,7 @@ PYEOF
 
 ## 三、Khala 踩坑发现（CC 版待修）
 
-### F1. 服务型推理支持（entry_type=service）[待CC] P0
+### F1. 服务型推理支持（entry_type=service）[已修-CC] P0
 
 **最大的架构缺口**。当前只认 `python3 script.py`，不支持「启动服务→调API→取结果→停止」。
 
@@ -148,7 +148,7 @@ PYEOF
 - CC 版: intake 阶段需同样逻辑
 - **预估**: CC 版 0.5 天
 
-### F4. 后台进程 PID 注册 [待CC] P1
+### F4. 后台进程 PID 注册 [已修-CC] P1
 
 - R-guard 要求 kill 的 PID 必须在 `$WORKSPACE/.cache/*.pid` 登记过
 - 项目自带脚本的后台进程不在体系内，cleanup 杀不掉
@@ -204,17 +204,17 @@ PYEOF
 - 但根因仍在，建议 preflight 加 `bash -n ~/.bashrc` 检测
 - **预估**: 0.2 天
 
-### F11. verify 服务型验证 [待CC] P2（依赖 F1）
+### F11. verify 服务型验证 [已修-CC] P2（依赖 F1）
 
-### F12. cleanup 清理后台进程 [待CC] P2（依赖 F4）
+### F12. cleanup 清理后台进程 [已修-CC] P2（依赖 F4）
 
-### F13. intake 项目类型推断 [待CC] P2（依赖 F1）
+### F13. intake 项目类型推断 [已修-CC] P2（依赖 F1）
 
 - 检测 `run_backend.sh / server.py / app.py / api.py` → entry_type=service
 - 检测 `estimated_params_b > 30` → entry_type=api_skeleton
 - **预估**: 0.5 天
 
-### F14. setsid nohup 统一模板 [待CC] P3
+### F14. setsid nohup 统一模板 [已修-CC] P3
 
 - 跨 cron 后台进程需统一用 setsid nohup + PID 文件 + sentinel
 - **预估**: 0.5 天
@@ -289,20 +289,21 @@ PYEOF
 | **P0** | H1-H3 | ✅ 同步 Hermes 已修的 bug（heredoc/phases_done/apt） | ✅已修 |
 | **P0** | Q4 | ✅ from_pretrained HF id → 本地路径替换 | ✅已修 |
 | **P0** | Q5 | ✅ 推理超时分级 | ✅已修 |
-| **P0** | F1 | 服务型推理支持 | 2天 |
+| **P0** | F1 | ✅ 服务型推理支持(CC 已修,#44) | ✅已修 |
 | **P0** | F2 | ✅ no_proxy（Hermes + CC SKILL 均已同步） | ✅已修 |
 | **P0** | F9 | ✅ 错误分类扩展（Hermes 修正毁文件 bug #41；CC 同步安全集） | ✅已修 |
 | **P0** | P1 | Cron 续跑机制 | 1天 |
 | **P1** | F5 | Megatron/TE 隐式依赖链 | 1天 |
-| **P1** | F4 | 后台进程 PID 注册 | 0.5天 |
+| **P1** | F4 | ✅ 后台进程 PID 注册(CC 已修,#44) | ✅已修 |
 | **P1** | F6 | --use-checkpoint-args 兼容 | 0.5天 |
 | **P1** | P3 | ✅ state 不一致（`scripts/reconcile-state.sh` 双框架共用,CC 自动生效） | ✅已修 |
 | **P1** | P8 | ✅ 接续跳过（CC版已有*_RESOLVED规则） | ✅ |
 | **P2** | F3 | GPU preflight（CC 版同步） | CC版0.5天 |
 | **P2** | F7/F8 | ✅ 批量依赖 + 子进程日志(CC 已同步) | ✅已修 |
 | **P2** | H3/F10 | ✅ apt 系统依赖 + .bashrc 检测(CC 已同步) | ✅已修 |
-| **P2** | F11-F13 | verify/cleanup/intake 服务型 | 2天 |
-| **P3** | F14-F20 | 历史遗留 | 3天 |
+| **P2** | F11-F13 | ✅ verify/cleanup/intake 服务型(CC 已修,#44) | ✅已修 |
+| **P3** | F14 | ✅ setsid nohup 统一模板(CC 已修,#44) | ✅已修 |
+| **P3** | F15-F20 | 历史遗留 | 3天 |
 
 **总预估: ~15 天**，P0 约 5 天，P1 约 4 天，P2 约 3 天，P3 约 3 天。
 

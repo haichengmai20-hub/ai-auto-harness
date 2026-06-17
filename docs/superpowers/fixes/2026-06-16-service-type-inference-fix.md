@@ -23,9 +23,9 @@
 见 spec「成功标准/验证」表 + 各任务 fixture。
 
 ## 状态
-- [ ] T2 helper + fixture
-- [ ] T3 intake / T4 run / T5 verify / T6 cleanup
-- [ ] T7 reconcile 孤儿回收
+- [x] T2 helper + fixture
+- [x] T3 intake / T4 run / T5 verify / T6 cleanup
+- [x] T7 reconcile 孤儿回收
 - [ ] T8 治理 + 回填
 - [ ] 实战:一个真实服务型项目走完 L1
 
