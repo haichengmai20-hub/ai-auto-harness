@@ -46,6 +46,38 @@ export HF_HUB_CACHE="$WORKSPACE/.cache/hf_hub"
 export TRANSFORMERS_CACHE="$WORKSPACE/.cache/transformers"
 ```
 
+## 第 0.6 步:entry_type 分流
+
+```bash
+ET=$(jq -r '.intake_result.entry_type // "script"' "$WORKSPACE/state.json" 2>/dev/null)
+```
+`script` → 走现有第 1-4 步。`service` → 走「服务验证」(独立重跑,不读 run_result)。
+
+## 服务验证(entry_type=service,F11)
+
+```bash
+export AI_HARNESS_RUN_ID="${AI_HARNESS_RUN_ID:-$RUN_ID}"
+export no_proxy=127.0.0.1,localhost NO_PROXY=127.0.0.1,localhost
+LC=/root/ai-auto-harness/scripts/service-lifecycle.sh
+bash "$LC" start "$WORKSPACE" 2>&1 | tee -a "$LOG"
+bash "$LC" wait-ready "$WORKSPACE" 1800 2>&1 | tee -a "$LOG"; READY=$?
+# infer + 验产物 + GPU 利用
+if [ "$READY" -eq 0 ]; then
+  INFER=$(jq -r '.intake_result.service.infer_cmd' "$WORKSPACE/state.json")
+  ( cd "$WORKSPACE/repo" && eval "$INFER" ) 2>&1 | tee -a "$LOG"
+  nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader | head -3 | tee -a "$LOG"
+fi
+bash "$LC" stop "$WORKSPACE" 2>&1 | tee -a "$LOG"   # verify 也必停
+```
+
+判定 → 写进现有 7 字段(不新增顶层字段):
+- start_cmd 起不来 / ready 始终不达成 → `passed=false, failed_at="startup"`
+- ready 成、infer 失败/产物不合理 → `passed=false, failed_at="smoke_test", verify_level="L0"`(就绪但没真跑通=降级档)
+- infer 产物合理 + GPU(mem>1GB & 至少一次 util>10%)→ `passed=true, verify_level="L1"`
+- `evidence` 加:`"ready_signal_met": <bool>, "infer_status": "<http code 或 exit>", "output_files": [...]`
+
+**verify_level 语义对齐**:service 的 L0=仅就绪、L1=真往返,与 script 的 L0=存在性/L1=内容级**同向**(L1 总是"更强证据"),下游 `jq -r '.verify_level'` 无需区分 entry_type。
+
 ## 第 1 步:启动检查(冷启动一次,短任务)
 
 试 `<entry_script> --help`,或对应的 quickstart 命令:
@@ -243,6 +275,8 @@ GPU 利用低(< 1GB used 或全程 0% 利用)→ `passed=false, failed_at="gpu_u
 - ❌ **smoke fail 了改 config 重跑** — 你没 Edit 工具,runner 的事。verify 只判定不修
 - ❌ **GPU 利用率 0% 但 smoke 出文件 → 算 pass** — 不行,GPU 0% = 没真用模型,严格 fail
 - ❌ **读 run_result 之前怎么修的** — 破坏独立判定原则
+- ❌ **service verify 后没 stop backend** — backend 占 GPU 孤儿(ephemeral 铁律:成功/失败/超时都必须 stop)
+- ❌ **ready 成就判 passed(没发 infer 就标 L1)** — ready 只是服务在线,L1 要求真实推理往返产物合理;ready 成 infer 未验=最多 L0
 
 ## 我做错了什么?常见诱惑
 
@@ -259,3 +293,10 @@ GPU 利用低(< 1GB used 或全程 0% 利用)→ `passed=false, failed_at="gpu_u
   - 动机: "有声音且够长"≠"声音是要的" — L0 全过仍可能内容不对,下游需要知道验到哪一级
   - 证据: [fixes/2026-05-29-verify-content-level-check-fix.md](../../../docs/superpowers/fixes/2026-05-29-verify-content-level-check-fix.md)
   - 验证: ✅ validate-verify.sh fixture 双向(含 verify_level PASS / 缺失 FAIL)
+
+- **2026-06-16** — F11 service 独立验证路径 + verify_level L0/L1 语义对齐
+  - 变更类型: 流程 + schema(evidence 子字段) + 反模式
+  - 影响范围: 第 0.6 步(entry_type 分流) + 服务验证段(start/wait-ready/infer/必停) + evidence 子字段(ready_signal_met/infer_status/output_files) + verify_level 语义(service L0=仅就绪/L1=真往返,与 script 同向) + 反模式两条(没 stop backend / ready 成就判 L1)
+  - 动机: F1 服务型支持 — vLLM/Gradio/Flask 类项目需独立 start→wait-ready→infer→验产物→stop 验证链,7 根字段不变,evidence 子对象扩展
+  - 证据: [docs/superpowers/fixes/2026-06-16-service-type-inference-fix.md](../../../docs/superpowers/fixes/2026-06-16-service-type-inference-fix.md)
+  - 验证: bash -n 自检通过;grep 确认第 0.6 步位置 + 7 字段 schema 不变 + verify_level 语义 + 必停
