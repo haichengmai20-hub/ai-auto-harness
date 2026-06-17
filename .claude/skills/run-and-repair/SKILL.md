@@ -104,6 +104,50 @@ done
 - 量大时可 `sed -i "s|\"$HF_ID\"|\"$LOCAL\"|g" <file>`(用 `|` 分隔避免路径 `/` 冲突);只对确认是加载参数的文件用。
 - 每次替换 append 一行到 `fixes.log`:`echo "$(date -Iseconds) round=0 fix=hf_path_replace $HF_ID→$LOCAL" >> "$WORKSPACE/logs/fixes.log"`。
 
+## 第 0.8 步:entry_type 分流
+
+```bash
+ET=$(jq -r '.intake_result.entry_type // "script"' "$WORKSPACE/state.json" 2>/dev/null)
+echo "entry_type=$ET" | tee -a "$LOG"
+```
+`ET=script` → 走第 1 步起的现有路径(零变化)。`ET=service` → 走下面「服务路径」,跳过第 1 步常规试跑。
+
+## 服务路径(entry_type=service,F1+F4)
+
+复用机械脚本 `scripts/service-lifecycle.sh`(start/wait-ready/stop),infer 与修复留给你(LLM)。**铁律:无论成功/失败/超时,return 前必须 `stop`。**
+
+```bash
+export AI_HARNESS_RUN_ID="${AI_HARNESS_RUN_ID:-$RUN_ID}"
+export no_proxy=127.0.0.1,localhost NO_PROXY=127.0.0.1,localhost   # F2,localhost 不被 Privoxy 拦
+LC=/root/ai-auto-harness/scripts/service-lifecycle.sh
+
+# 1) 起服务(写 .cache/backend.pid + sentinel)
+bash "$LC" start "$WORKSPACE" | tee -a "$LOG"
+
+# 2) 等就绪(超时按 estimated_params_b 分级,复用 Q5;服务加载占大头给足)
+PARAMS_B=$(jq -r '.estimated_params_b // 0' "$WORKSPACE/state.json" 2>/dev/null)
+RTO=$(python3 -c "p=float('${PARAMS_B:-0}' or 0); print(900 if p<=1 else 1200 if p<=3 else 1800 if p<=10 else 3600 if p<=30 else 5400)" 2>/dev/null || echo 1800)
+bash "$LC" wait-ready "$WORKSPACE" "$RTO" | tee -a "$LOG"; READY=$?
+```
+
+- `wait-ready` 非 0(超时/backend 崩):看 `logs/backend.log` 根因。可修(端口冲突 F9 port_conflict→改 env 重起、缺依赖→装)则修(算修复轮)后重起服务;改不动或超 R3 预算 → **`stop` 后 `paused_for_human`**(reason=`service_startup_over_budget`),**绝不** paused_in_progress。
+- `READY=0` → 发推理请求:
+
+```bash
+INFER=$(jq -r '.intake_result.service.infer_cmd' "$WORKSPACE/state.json")
+OUT=$(jq -r '.intake_result.service.output_path' "$WORKSPACE/state.json")
+cd "$WORKSPACE/repo" && eval "$INFER" 2>&1 | tee -a "$LOG"
+```
+- 请求错(4xx/5xx / 连接拒绝 / payload 不合法)= **普通修复轮**:看返回改 payload/endpoint/header,重发(计入 3 轮)。
+- 验产物:`$OUT` 存在 + 大小/格式合理(同 script 成功判定,用 domain knowledge)。
+
+```bash
+# 3) 必停(放在所有分支的出口)
+bash "$LC" stop "$WORKSPACE" | tee -a "$LOG"
+```
+
+**降级**:ready 达成但 infer 修复预算内始终不通 → `stop` 后 run.json 记 `ready_achieved:true, infer_succeeded:false`,passed 交给 verify(它会标 L0)。
+
 ## 第 1 步:试跑 entry_script(每轮先做)
 
 **推理超时按模型大小分级(Q5)** — 600s 对 0.6B 都不够(加载+推理就超),大模型更不可能。从 intake.json 的 `estimated_params_b` 取超时:
@@ -337,6 +381,10 @@ if round_count == 3 and not passed:
 cat > "$WORKSPACE/results/run.json" <<JSON
 {
   "passed": <true|false>,
+  "entry_type": "<script|service>",
+  "ready_achieved": <bool|null>,
+  "infer_succeeded": <bool|null>,
+  "backend_log_tail": "<service 时 backend.log 末 50 行;script 时 null>",
   "error_class": <"CUDA_OOM" | "MODULE_MISSING" | "te_missing" | "te_spec_missing" | "incompatible_checkpoint_arg" | "distributed_env_missing" | "port_conflict" | "shell_config_corrupt" | "system_dep_missing" | ... | null>,
   "suggested_fix": <"转人工时给的建议(如建议加哪些 Megatron flag);无则 null">,
   "repair_count": <int>,
@@ -358,6 +406,10 @@ echo "=== PHASE_END   phase=run-and-repair slug=$SLUG status=done ts=$(date -Ise
 ```json
 {
   "passed": true,
+  "entry_type": "script",
+  "ready_achieved": null,
+  "infer_succeeded": null,
+  "backend_log_tail": null,
   "error_class": null,
   "repair_count": 1,
   "stdout_tail": "<last 50 lines>",
@@ -395,8 +447,18 @@ echo "=== PHASE_END   phase=run-and-repair slug=$SLUG status=done ts=$(date -Ise
 - ❌ **推理超时写死 600s** — 0.6B 都不够,按 `estimated_params_b` 分级(第 1 步 Q5)
 - ❌ **依赖逐个发现逐个装** — 深依赖链(Megatron 等)会烧很多轮;一次收集本轮所有 `No module named` 批量装(F7)
 - ❌ **子进程崩溃 stderr 空就判 unknown 不查 dmesg** — OOM kill 的 traceback 在 dmesg,不查就漏掉真因(F8)
+- ❌ **service 路径 return 前没 stop** — backend 占 GPU 孤儿(ephemeral 铁律:成功/失败/超时都 stop)
+- ❌ **service 起不来就 paused_in_progress** — 决策 3 不留跨 cron 服务;超预算=stop+paused_for_human
+- ❌ **手 kill 服务进程不走 service-lifecycle.sh stop** — 漏 sentinel 标记,孤儿回收会误判
 
 ## ChangeLog
+
+- **2026-06-17** — F1+F4 service 分支:start/wait-ready/infer/必停(CC)
+  - 变更类型: 流程+schema+反模式
+  - 影响范围: 第 0.8 步(entry_type 分流)+服务路径段(start/wait-ready/infer/必停)+run.json(entry_type/ready_achieved/infer_succeeded/backend_log_tail)+反模式(service 路径 return 前没 stop / paused_in_progress / 手 kill 漏 sentinel)
+  - 动机: F1 服务型支持 — 平台原只认单脚本,vLLM/Gradio/Flask 类后端项目全挂;service-lifecycle.sh(T2)已就绪,本步将 LLM infer/修复纳入 SKILL 并强制 ephemeral 铁律
+  - 证据: [docs/superpowers/fixes/2026-06-16-service-type-inference-fix.md](../../../docs/superpowers/fixes/2026-06-16-service-type-inference-fix.md)
+  - 验证: bash -n 自检通过;grep "return 前没 stop" 命中;第 0.8 步位置在 0.7 后/第 1 步前
 
 - **2026-06-16** — batch #2:F7 批量装依赖 + F8 子进程 dmesg 捕获(CC)
   - 变更类型: 流程(第 4 步修依赖批量化 + 深度扫描)+ 流程(第 2 步 dmesg 捕获)+ 反模式
