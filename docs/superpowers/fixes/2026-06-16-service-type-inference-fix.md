@@ -26,8 +26,8 @@
 - [x] T2 helper + fixture
 - [x] T3 intake / T4 run / T5 verify / T6 cleanup
 - [x] T7 reconcile 孤儿回收
-- [ ] T8 治理 + 回填
+- [x] T8 治理 + 回填
 - [ ] 实战:一个真实服务型项目走完 L1
 
 ## 修复结果
-- **commit hash**: (待回填)
+- **commit hash**: \`812aa97\`
