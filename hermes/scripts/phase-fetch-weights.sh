@@ -98,10 +98,10 @@ for REPO in $REPOS; do
   echo "[fetch] Starting background download for $REPO" >> "$LOG"
   setsid nohup bash -c "
     set +e
-    STARTED_AT=\$(date -Iseconds)
-    STARTED_EPOCH=\$(date +%s)
-    # Fix4: 子进程也绕代理
-    unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy 2>/dev/null || true
+    STARTED_AT=\\$(date -Iseconds)
+    STARTED_EPOCH=\\$(date +%s)
+    # Fix4-revised: 本机无直连外网,必须保留代理(fix #36);503问题改用低并发解决
+    # unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy 2>/dev/null || true  # ← 删除!断网!
     export no_proxy='${no_proxy}' NO_PROXY='${NO_PROXY}'
     export HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_CONCURRENCY=2
     export HF_HOME='$WORKSPACE/.cache/huggingface' HF_HUB_CACHE='$WORKSPACE/.cache/hf_hub'

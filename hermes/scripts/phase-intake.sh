@@ -64,6 +64,7 @@ fi
 # ---- 4. 推断 entry_script + entry_type ----
 ENTRY_SCRIPT=""
 ENTRY_TYPE="script"  # script/gradio/service/docker
+GRADIO_FALLBACK=""   # 初始化,避免 set -u unbound variable
 PYTHON_VERSION="3.10"
 PYTHON_CONFIDENCE="high"
 
@@ -162,10 +163,11 @@ echo "HF refs found: $HF_REFS" >> "$LOG"
 # F14: 最小可验证子集 — 多变体项目(如 Qwen3-TTS 6 个 repo)不需全下
 # 筛选策略: 优先选最大变体 + Tokenizer/Codec 必需 + 跳过 Base/fine-tune-only 变体
 if [ "$HF_REPOS" != "[]" ]; then
-  FILTERED_REPOS=$(echo "$HF_REPOS" | python3 << 'PYEOF'
-import sys, json, re
+  export V_HF_REPOS="$HF_REPOS"
+  FILTERED_REPOS=$(python3 << 'PYEOF'
+import sys, json, re, os
 
-repos = json.loads(sys.stdin.read())
+repos = json.loads(os.environ["V_HF_REPOS"])
 if len(repos) <= 2:
     # 1-2 个 repo,全下(没必要筛选)
     print(json.dumps(repos))
@@ -247,10 +249,11 @@ print(json.dumps(paths))
   
   # Fix5-B: weight_target_paths 环境变量路径映射增强
   # 扫描代码中的权重路径 hardcode + 环境变量，构建更准确的 symlink 映射
-  WEIGHT_PATHS_JSON=$(echo "$FILTERED_REPOS" | python3 << 'PYEOF5B'
+  export V_FILTERED_REPOS="$FILTERED_REPOS"
+  WEIGHT_PATHS_JSON=$(python3 << 'PYEOF5B'
 import sys, json, os, re, pathlib
 
-repos = json.loads(sys.stdin.read())
+repos = json.loads(os.environ["V_FILTERED_REPOS"])
 repo_dir = os.environ.get("REPO_DIR", "")
 paths = []
 
